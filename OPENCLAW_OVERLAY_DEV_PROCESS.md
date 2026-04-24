@@ -241,11 +241,12 @@ must wait for those to land first.
 
 For each task, the agent:
 
-1. Creates a branch `phase-<N>/<task-id>-<slug>`.
-2. Implements only what the task says.
-3. Includes tests required by the task's acceptance criteria.
-4. Opens a PR linking to the task ID.
-5. Updates the task status in the phase doc (`status: in_progress`).
+1. Implements only what the task says.
+2. Includes tests required by the task's acceptance criteria.
+3. Squashes work into **1–2 commits per phase** (не на каждую задачу отдельный коммит).
+   Commit message format: `phase-<N>: <summary>`.
+4. Pushes via `gh` CLI using `git -c user.name/user.email` flags — never via raw git config.
+5. Updates the task status in the phase doc (`status: completed`) after push.
 
 ### 5.4. Step 4 — Review each PR
 
@@ -268,7 +269,7 @@ Verifier agent at end of phase:
 1. Runs the **Phase smoke test suite** declared in the phase doc.
 2. Confirms every task is `completed`.
 3. Confirms every Definition of Done item is checked.
-4. Tags a release `v0.<N>.0`.
+4. Creates a git tag `v0.<N>.0` — **no GitHub Release** until owner explicitly requests one.
 
 If any DoD item fails — phase is **not** complete; new tasks are added
 to the phase doc (with owner's re-approval).
@@ -429,25 +430,14 @@ end (~25). Heavier phases (Phase 6, 7) may have 30–40.
 
 ---
 
-## 8. PR conventions
+## 8. Commit conventions
 
-- Branch name: `phase-<N>/<task-id>-<slug>`. Examples:
-  `phase-0/T03-go-mod`, `phase-1/T12-ufw-detect`.
-- Commit message format: `phase-<N>/<task-id>: <imperative subject>`.
-  Example: `phase-0/T08: implement TUI shell with main menu`.
-- PR title: same as commit subject.
-- PR description must include:
-
-  ```
-  Closes phase-<N>/T<id>
-
-  ## Acceptance criteria
-  - [x] Criterion 1
-  - [x] Criterion 2
-  ```
-
-- One task = one PR. No combining tasks unless owner approves.
-- Squash merge into `main` (linear history).
+- **1–2 commits per phase** (squash all task work). No per-task commits or PRs.
+- Commit message format: `phase-<N>: <summary of what the phase delivers>`.
+  Second commit (if needed): `phase-<N>: <specific fix or retro>`.
+- Always use `git -c user.name="pdasilem" -c user.email="74730932+pdasilem@users.noreply.github.com"`.
+- Push via `gh auth setup-git` + `git push origin main`.
+- Linear history on `main` — force push allowed when squashing within a phase.
 
 ---
 
