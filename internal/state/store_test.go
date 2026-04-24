@@ -147,3 +147,42 @@ func TestSetAdminOverwritesPrevious(t *testing.T) {
 		t.Errorf("expected admin bob after overwrite, got %q", got.Username)
 	}
 }
+
+func TestSetAndGetMeta(t *testing.T) {
+	s := openTemp(t)
+	if err := s.SetMeta(context.Background(), "install_completed", "2026-04-25T00:00:00Z"); err != nil {
+		t.Fatalf("SetMeta: %v", err)
+	}
+	val, err := s.GetMeta(context.Background(), "install_completed")
+	if err != nil {
+		t.Fatalf("GetMeta: %v", err)
+	}
+	if val != "2026-04-25T00:00:00Z" {
+		t.Errorf("GetMeta: got %q", val)
+	}
+}
+
+func TestGetMetaMissing(t *testing.T) {
+	s := openTemp(t)
+	val, err := s.GetMeta(context.Background(), "nonexistent")
+	if err != nil {
+		t.Fatalf("GetMeta missing: %v", err)
+	}
+	if val != "" {
+		t.Errorf("expected empty string, got %q", val)
+	}
+}
+
+func TestSetMetaOverwrites(t *testing.T) {
+	s := openTemp(t)
+	if err := s.SetMeta(context.Background(), "k", "v1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetMeta(context.Background(), "k", "v2"); err != nil {
+		t.Fatal(err)
+	}
+	val, _ := s.GetMeta(context.Background(), "k")
+	if val != "v2" {
+		t.Errorf("expected v2, got %q", val)
+	}
+}

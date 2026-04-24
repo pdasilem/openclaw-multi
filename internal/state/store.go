@@ -65,6 +65,30 @@ func (s *Store) GetAdmin(ctx context.Context) (*Admin, error) {
 	return &a, nil
 }
 
+// SetMeta writes a key/value pair to the meta table.
+func (s *Store) SetMeta(ctx context.Context, key, value string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)`, key, value,
+	)
+	if err != nil {
+		return fmt.Errorf("set meta %q: %w", key, err)
+	}
+	return nil
+}
+
+// GetMeta reads a value from the meta table. Returns ("", nil) if not found.
+func (s *Store) GetMeta(ctx context.Context, key string) (string, error) {
+	var value string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = ?`, key).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("get meta %q: %w", key, err)
+	}
+	return value, nil
+}
+
 // SetAdmin persists an admin record, replacing any existing one.
 // Only one admin row is ever stored.
 func (s *Store) SetAdmin(ctx context.Context, a Admin) error {

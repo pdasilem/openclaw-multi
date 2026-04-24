@@ -1,0 +1,16 @@
+[Unit]
+Description=OpenClaw Overlay API Daemon
+After=network.target
+Requires=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/openclaw-overlay-api
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

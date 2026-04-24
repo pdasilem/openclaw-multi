@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/SergeiM/openclaw-multi/internal/tui"
+	"github.com/pdasilem/openclaw-multi/internal/tui"
 )
 
 func main() {

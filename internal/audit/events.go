@@ -19,6 +19,7 @@ const (
 	ActionAdminSet       ActionType = "admin_set"
 	ActionStartup        ActionType = "startup"
 	ActionShutdown       ActionType = "shutdown"
+	ActionShellExec      ActionType = "shell_exec"
 )
 
 // Result is the outcome of an audited action.

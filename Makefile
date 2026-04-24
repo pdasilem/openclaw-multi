@@ -1,4 +1,4 @@
-MODULE := github.com/SergeiM/openclaw-multi
+MODULE := github.com/pdasilem/openclaw-multi
 BINARIES := openclaw-multi openclaw-overlay-api openclaw-overlay-watcher
 BIN_DIR := bin
 

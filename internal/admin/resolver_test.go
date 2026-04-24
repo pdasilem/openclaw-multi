@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SergeiM/openclaw-multi/internal/audit"
-	"github.com/SergeiM/openclaw-multi/internal/state"
+	"github.com/pdasilem/openclaw-multi/internal/audit"
+	"github.com/pdasilem/openclaw-multi/internal/state"
 )
 
 // fakeStore is an in-memory AdminStore for tests.

@@ -10,12 +10,15 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/SergeiM/openclaw-multi/internal/admin"
-	"github.com/SergeiM/openclaw-multi/internal/audit"
-	"github.com/SergeiM/openclaw-multi/internal/state"
+	"github.com/pdasilem/openclaw-multi/internal/admin"
+	"github.com/pdasilem/openclaw-multi/internal/audit"
+	"github.com/pdasilem/openclaw-multi/internal/config"
+	"github.com/pdasilem/openclaw-multi/internal/shell"
+	"github.com/pdasilem/openclaw-multi/internal/state"
+	"github.com/pdasilem/openclaw-multi/internal/tui/wizard"
 )
 
-const version = "v0.0.0"
+const version = "v0.1.0"
 
 // screen identifies which sub-screen is active.
 type screen int
@@ -24,6 +27,7 @@ const (
 	screenMainMenu screen = iota
 	screenPlaceholder
 	screenFirstRun
+	screenWizard
 )
 
 // Model is the root Bubble Tea model.
@@ -36,6 +40,7 @@ type Model struct {
 	menu        mainMenuModel
 	placeholder placeholderModel
 	firstRun    firstRunModel
+	wizard      tea.Model
 
 	store  *state.Store
 	logger *audit.Logger
@@ -73,9 +78,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case MenuActionMsg:
+		if msg.ItemID == 1 {
+			// Menu item 1 — launch fresh-install wizard.
+			wiz := launchFreshInstall(context.Background(), m.store, m.logger)
+			m.wizard = wiz
+			m.screen = screenWizard
+			return m, wiz.Init()
+		}
 		title := menuItems[msg.ItemID-1].label
 		m.placeholder = newPlaceholder(msg.ItemID, title)
 		m.screen = screenPlaceholder
+		return m, nil
+
+	case wizard.WizardDoneMsg:
+		m.screen = screenMainMenu
 		return m, nil
 
 	case backMsg:
@@ -100,6 +116,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		updated, cmd := m.firstRun.Update(msg)
 		m.firstRun = updated
 		return m, cmd
+	case screenWizard:
+		if m.wizard != nil {
+			updated, cmd := m.wizard.Update(msg)
+			m.wizard = updated
+			return m, cmd
+		}
 	}
 	return m, nil
 }
@@ -134,11 +156,34 @@ func (m Model) View() string {
 		b.WriteString(m.placeholder.View())
 	case screenFirstRun:
 		b.WriteString(m.firstRun.View())
+	case screenWizard:
+		if m.wizard != nil {
+			b.WriteString(m.wizard.View())
+		}
 	}
 
 	b.WriteByte('\n')
 	b.WriteString(StatusStyle.Render("  ↑/↓ navigate   Enter select   q quit"))
 	return b.String()
+}
+
+// launchFreshInstall creates the fresh-install wizard model.
+func launchFreshInstall(ctx context.Context, store *state.Store, logger *audit.Logger) tea.Model {
+	exec := &shell.RealExecutor{Logger: logger}
+	fs := shell.RealFS{}
+	cfg, _ := config.Load("/etc/openclaw-multi/config.yml")
+	d := wizard.Deps{
+		Exec:        exec,
+		FS:          fs,
+		Logger:      logger,
+		Store:       store,
+		Cfg:         cfg,
+		CfgPath:     "/etc/openclaw-multi/config.yml",
+		TmplDir:     "/opt/openclaw-multi/templates",
+		Interactive: true,
+	}
+	steps := wizard.NewFreshInstallSteps(d)
+	return wizard.New(ctx, steps)
 }
 
 // Run is the main entrypoint for the TUI binary.

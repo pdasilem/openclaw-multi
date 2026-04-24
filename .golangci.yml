@@ -18,8 +18,7 @@ linters:
     revive:
       rules:
         - name: exported
-          arguments:
-            - disableStutteringCheck
+          disabled: true
 
 formatters:
   enable:
@@ -28,7 +27,7 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/SergeiM/openclaw-multi
+        - github.com/pdasilem/openclaw-multi
 
 issues:
   exclude-rules:

@@ -1,0 +1,15 @@
+[Unit]
+Description=OpenClaw Gateway for ${USERNAME}
+After=network.target
+
+[Service]
+Type=simple
+Environment=OPENCLAW_GATEWAY_PORT=${GATEWAY_PORT}
+Environment=OPENCLAW_GATEWAY_TOKEN=${GATEWAY_TOKEN}
+Environment=OPENCLAW_GATEWAY_BIND=loopback
+ExecStart=/usr/bin/openclaw gateway start --daemon false
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

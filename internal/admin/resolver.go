@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/SergeiM/openclaw-multi/internal/audit"
-	"github.com/SergeiM/openclaw-multi/internal/state"
+	"github.com/pdasilem/openclaw-multi/internal/audit"
+	"github.com/pdasilem/openclaw-multi/internal/state"
 )
 
 // User represents a Linux user identity.

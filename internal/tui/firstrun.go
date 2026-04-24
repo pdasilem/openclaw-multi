@@ -7,9 +7,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/SergeiM/openclaw-multi/internal/admin"
-	"github.com/SergeiM/openclaw-multi/internal/audit"
-	"github.com/SergeiM/openclaw-multi/internal/state"
+	"github.com/pdasilem/openclaw-multi/internal/admin"
+	"github.com/pdasilem/openclaw-multi/internal/audit"
+	"github.com/pdasilem/openclaw-multi/internal/state"
 )
 
 // firstRunDoneMsg signals that first-run setup completed successfully.

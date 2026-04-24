@@ -13,7 +13,7 @@ See the full architecture and plan in
 
 ## CI Status
 
-![CI](https://github.com/SergeiM/openclaw-multi/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/pdasilem/openclaw-multi/actions/workflows/ci.yml/badge.svg)
 
 ## Development
 
