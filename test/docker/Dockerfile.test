@@ -1,0 +1,36 @@
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    systemd \
+    systemd-sysv \
+    dbus \
+    bash \
+    curl \
+    ca-certificates \
+    sudo \
+    sqlite3 \
+    expect \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create admin user with passwordless sudo (test-only).
+RUN useradd -m -s /bin/bash opadmin && \
+    echo 'opadmin ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/opadmin && \
+    chmod 0440 /etc/sudoers.d/opadmin
+
+# Create required directories for the overlay.
+RUN mkdir -p \
+    /var/lib/openclaw-multi \
+    /var/log/openclaw-multi \
+    /opt/openclaw-multi && \
+    chown -R opadmin:opadmin \
+    /var/lib/openclaw-multi \
+    /var/log/openclaw-multi
+
+# Copy the pre-built TUI binary.
+COPY bin/openclaw-multi-linux-amd64 /usr/local/bin/openclaw-multi
+RUN chmod +x /usr/local/bin/openclaw-multi
+
+# Use systemd as PID 1 so user services work.
+ENTRYPOINT ["/sbin/init"]

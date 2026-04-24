@@ -7,8 +7,9 @@ dist/
 *.so
 *.dylib
 
-# Test output
+# Test output (Go test binaries, not Dockerfiles)
 *.test
+!Dockerfile.*
 coverage.out
 coverage.html
 
