@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build binaries
+        run: |
+          make build-amd64 build-arm64
+
+      - name: Create checksums
+        run: |
+          cd bin
+          sha256sum * > checksums.txt
+
+      - name: Extract changelog
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          NOTES=$(awk "/^## ${VERSION}/{found=1; next} /^## v/{if(found) exit} found" CHANGELOG.md)
+          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$NOTES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.changelog.outputs.notes }}
+          files: |
+            bin/openclaw-multi-linux-amd64
+            bin/openclaw-multi-linux-arm64
+            bin/openclaw-overlay-api-linux-amd64
+            bin/openclaw-overlay-api-linux-arm64
+            bin/openclaw-overlay-watcher-linux-amd64
+            bin/openclaw-overlay-watcher-linux-arm64
+            bin/checksums.txt

@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" latest
+      - name: Run lint
+        run: golangci-lint run ./...
+
+  test:
+    name: Test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+      - name: Run tests
+        run: go test -race -coverprofile=coverage.out ./...
+      - name: Show coverage summary
+        run: go tool cover -func=coverage.out | tail -5
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+
+  build-amd64:
+    name: Build (linux/amd64)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+      - name: Build amd64
+        run: make build-amd64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries-amd64
+          path: bin/
+
+  build-arm64:
+    name: Build (linux/arm64)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+      - name: Build arm64
+        run: make build-arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries-arm64
+          path: bin/
+
+  schema-check:
+    name: Schema Check
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install sqlite3
+        run: sudo apt-get install -y sqlite3
+      - name: Validate state.sql
+        run: sqlite3 ':memory:' < schemas/state.sql
+
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+      - name: Run shellcheck
+        run: find scripts/ -name '*.sh' -print0 | xargs -0 -r shellcheck

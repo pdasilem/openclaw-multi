@@ -1,0 +1,39 @@
+# Binaries
+bin/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test output
+*.test
+coverage.out
+coverage.html
+
+# Build cache
+/vendor/
+
+# Editor directories
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets / local config
+*.key
+*.pem
+*.env
+
+# Docker artifacts
+.dockerignore
+
+# Generated
+man/*.1.gz
+openclaw/
