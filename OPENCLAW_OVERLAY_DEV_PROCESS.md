@@ -9,6 +9,38 @@
 
 ---
 
+## 0. Non-negotiable constraints
+
+These override everything else in this document:
+
+1. **Tests only — no live installs.** No phase may run real system commands
+   (`apt-get`, `npm install -g`, `tailscale up`, `ufw`, `systemctl`, etc.) as
+   part of the development or CI workflow. All system interaction is abstracted
+   behind injectable interfaces and tested with mocks. Live execution on a real
+   VPS is deferred until the complete product is ready and the owner explicitly
+   authorises a deployment run.
+
+2. **No VPS access.** The implementer agent has no SSH access to any VPS.
+   All verification happens via unit tests, mock-based integration tests, and
+   CI. Docker containers used in tests must not require network access or real
+   package installation.
+
+3. **Go version.** Always use the latest stable Go release confirmed via
+   Context7 before starting a phase. Do not rely on internal knowledge for
+   version numbers.
+
+4. **golangci-lint v2+.** Config format: `version: "2"`, formatters in
+   `formatters:` section, `gosimple` removed (merged into `staticcheck`).
+
+5. **Commits.** 1–2 commits per phase, squashed. Author always via
+   `git -c user.name="pdasilem" -c user.email="74730932+pdasilem@users.noreply.github.com"`.
+   Push via `gh auth setup-git`. Never modify global git config.
+
+6. **Releases.** Git tag per phase (`v0.<N>.0`) for tracking only.
+   No GitHub Release until the owner explicitly requests one.
+
+---
+
 ## 1. Purpose
 
 `openclaw-multi` is a complex project. Trying to design every

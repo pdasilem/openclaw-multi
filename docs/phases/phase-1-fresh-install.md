@@ -12,283 +12,338 @@ prior_retros: ["phase-0-retro.md"]
 
 # Phase 1: Bootstrap fresh install
 
-> After this phase: the admin can run `openclaw-multi` on a clean Ubuntu 22.04+
-> VPS, go through the fresh-install wizard end-to-end, and have a fully
-> configured overlay host (Node.js + Tailscale + Cloudflare Tunnel + UFW +
-> hardening + openclaw global + overlay-API stub service) with no users yet.
+> **Test-only phase.** No code in this phase runs on a real VPS. All system
+> interaction (apt-get, npm, systemctl, tailscale, cloudflared, ufw, sysctl)
+> is abstracted behind injectable interfaces and tested exclusively with mocks.
+> Live execution is deferred until the complete product is built.
 >
-> All install steps are idempotent (§2.5): running the wizard twice on a
-> partially-configured VPS is safe.
+> After this phase: the fresh-install wizard (TUI menu item 1) is fully
+> implemented, all logic is unit-tested with mock executors, and the code
+> compiles for linux-amd64/arm64. A real admin will be able to run this on a
+> VPS only after the owner approves a deployment run post-MVP.
 
 ---
 
 ## 1. Goals
 
-1. `internal/preflight` package detects distro, disk/RAM, open ports, required
-   tools — all checks pass or emit actionable warnings.
-2. `internal/deps` package installs/verifies Node.js, Tailscale, cloudflared,
-   UFW idempotently (skips what is already configured).
-3. Config templates (`templates/`) render correctly via envsubst; generated
-   files are written to the correct locations.
-4. TUI wizard (menu item 1 "Установка с нуля") leads the admin through all
-   10 sub-steps of §6.2, showing progress and status per step.
-5. `internal/shell` safe executor wraps `os/exec` calls: captures stdout/stderr,
-   logs to audit, enforces timeouts, reports errors back to TUI.
-6. Smoke test in Docker (ubuntu:22.04, no real network) passes: wizard
-   completes, all idempotency re-runs succeed, state.db reflects installed state.
+1. `internal/shell.Executor` interface — the single abstraction for all
+   subprocess calls. Real implementation uses `os/exec`; test implementation
+   is a fully controllable mock.
+2. `internal/preflight` — checks distro, disk, RAM, systemd, port conflicts.
+   Fully unit-tested via mock filesystem reads and mock executor.
+3. `internal/deps` — idempotent ensure-functions for Node.js, Tailscale,
+   cloudflared (Variant A / Variant B), UFW. Every function takes an
+   `Executor` and is 100% tested with mocks. No real installs.
+4. `internal/config` — overlay config YAML + envsubst template renderer.
+   Unit-tested with in-memory fixtures.
+5. `internal/hardening` — sysctl, hidepid, profile.d writes. Mock-executor
+   based; no real file writes in tests.
+6. `internal/tui/wizard` — generic Bubble Tea step-wizard model + the
+   fresh-install wizard wiring all steps together. Unit-tested via model
+   Update() calls (no real TUI rendering needed in tests).
+7. `make ci` passes: lint clean, all tests green, both arches build.
 
 ---
 
 ## 2. Out of scope
 
-- Actual Tailscale OAuth flow (we stub the interactive `tailscale up` step).
-- Actual cloudflared tunnel creation (we stub DNS/CNAME write; local config
-  generation is real).
+- Any real execution on a VPS (deferred until post-MVP).
+- Actual Tailscale OAuth, actual cloudflared tunnel creation on the network.
 - Adding users (Phase 2).
-- overlay-API HTTP server (Phase 6); only a systemd unit stub is installed.
-- Backup, uninstall, health check screens (later phases).
+- overlay-API HTTP server (Phase 6).
+- Backup, health check, uninstall screens (later phases).
+- Docker smoke tests that install real packages.
 
 ---
 
 ## 3. Inputs
 
-- Code state at start: `v0.0.0` tag (phase-0 skeleton).
-- Master plan sections: §2.5, §5 (directory layout), §6.2, §9 Phase 1.
+- Code state at start: `v0.0.0` / `phase-0` skeleton.
+- Go version: **1.26.0** (verified via Context7 before phase start).
+- Master plan: §2.5 (idempotency), §5 (dirs), §6.2 (wizard steps), §9 Phase 1.
 - Prior retros: `phase-0-retro.md`.
-- Open questions resolved before starting:
-  - Go 1.25.0 required (see retro).
-  - golangci-lint v2 config format applies.
-  - Commits: 1–2 per phase, squashed.
+- Constraints from DEV_PROCESS §0: no live installs, no VPS, tests only.
 
 ---
 
 ## 4. Architecture for this phase
 
-New packages added in Phase 1:
+### Core abstraction: `shell.Executor`
+
+Every package that needs to run a subprocess depends on this interface, not
+on `os/exec` directly. This is the key that makes everything testable:
+
+```go
+// internal/shell/exec.go
+type Executor interface {
+    Run(ctx context.Context, opts ExecOpts) (ExecResult, error)
+}
+
+type ExecOpts struct {
+    Cmd     []string
+    Timeout time.Duration
+    Sudo    bool
+    Env     []string
+}
+
+type ExecResult struct {
+    Stdout   string
+    Stderr   string
+    ExitCode int
+}
+
+// RealExecutor uses os/exec. MockExecutor is in exec_mock_test.go.
+type RealExecutor struct{ logger audit.Logger }
+```
+
+### New packages
 
 ```
+internal/shell/
+  exec.go          ← Executor interface + RealExecutor
+  exec_test.go     ← tests for RealExecutor (no sudo, no system cmds)
+
 internal/preflight/
-  checker.go      ← distro, disk, RAM, systemd, ports checks
-  checker_test.go
+  checker.go       ← CheckAll, individual check funcs
+  checker_test.go  ← all mocked
 
 internal/deps/
-  node.go         ← Node.js detect + install
-  tailscale.go    ← Tailscale detect + install + up
-  cloudflared.go  ← cloudflared detect + install + config generate
-  ufw.go          ← UFW detect + configure
-  deps_test.go    ← unit tests with mock executor
-
-internal/shell/
-  exec.go         ← safe os/exec wrapper (timeout, audit log, stdout/stderr capture)
-  exec_test.go
+  node.go          ← EnsureNode(ctx, exec, cfg)
+  tailscale.go     ← EnsureTailscale(ctx, exec, interactive bool)
+  cloudflared.go   ← EnsureCloudflared(ctx, exec, cfg, renderer, mode)
+  ufw.go           ← EnsureUFW(ctx, exec, extraPorts []int)
+  deps_test.go     ← MockExecutor-based tests for all four
 
 internal/config/
-  overlay.go      ← /etc/openclaw-multi/config.yml read/write
-  templates.go    ← envsubst renderer for templates/
+  overlay.go       ← OverlayConfig struct, Load/Save
+  templates.go     ← Render, RenderToFile
+  config_test.go   ← in-memory fixtures
 
 internal/hardening/
-  sysctl.go       ← /etc/sysctl.d/openclaw-overlay.conf write + sysctl --system
-  proc.go         ← /etc/fstab hidepid=2 write + mount remount
-  profile.go      ← /etc/profile.d/openclaw.sh write
+  hardening.go     ← ApplySysctl, ApplyHidepid, ApplyProfile
+  hardening_test.go
+
+internal/tui/wizard/
+  wizard.go        ← generic WizardModel (Bubble Tea)
+  wizard_test.go
+  freshinstall.go  ← 10 steps wired to internal packages
+  freshinstall_test.go
+
+templates/
+  sysctl-overlay.conf
+  fstab-proc-hidepid
+  profile-d-openclaw.sh
+  cloudflared-config.tmpl
+  openclaw-overlay-api.service.tmpl
+  openclaw-gateway.service.tmpl      ← stub, used in Phase 2
 ```
-
-TUI changes:
-
-```
-internal/tui/
-  wizard/
-    wizard.go        ← generic step-by-step wizard model
-    freshinstall.go  ← Phase 1 wizard: 10 steps from §6.2
-    step.go          ← Step interface: Name, Run, Idempotent
-```
-
-The wizard wires into the existing TUI by replacing the "Not implemented yet"
-placeholder for menu item 1.
-
-Key constraint: **no CGo**, pure Go only (already established in phase-0).
-`internal/shell.Exec` uses `os/exec`, not CGo.
 
 ---
 
 ## 5. Atomic tasks
 
-| ID  | Title                                                       | Est   | Depends on     | Status  |
-|-----|-------------------------------------------------------------|-------|----------------|---------|
-| T01 | `internal/shell`: safe exec wrapper + tests                 | 0.5d  | —              | pending |
-| T02 | `internal/preflight`: distro + disk/RAM + systemd checks    | 0.5d  | T01            | pending |
-| T03 | `internal/preflight`: port conflict check (18789–19999)     | 0.25d | T02            | pending |
-| T04 | `internal/preflight`: unit tests (mock fs + mock exec)      | 0.5d  | T02, T03       | pending |
-| T05 | `internal/config`: overlay config YAML read/write           | 0.5d  | —              | pending |
-| T06 | `internal/config`: envsubst template renderer               | 0.5d  | T05            | pending |
-| T07 | templates: sysctl-overlay.conf, fstab-proc-hidepid,         | 0.5d  | —              | pending |
-|     | profile-d-openclaw.sh, cloudflared-config.tmpl,             |       |                |         |
-|     | openclaw-overlay-api.service.tmpl                           |       |                |         |
-| T08 | `internal/hardening`: sysctl + hidepid + profile writes     | 0.5d  | T01, T06, T07  | pending |
-| T09 | `internal/hardening`: unit tests                            | 0.5d  | T08            | pending |
-| T10 | `internal/deps/node`: detect Node.js + version check        | 0.5d  | T01            | pending |
-| T11 | `internal/deps/tailscale`: detect + install stub + up stub  | 0.5d  | T01            | pending |
-| T12 | `internal/deps/cloudflared`: detect + install + config gen  | 1d    | T01, T06       | pending |
-| T13 | `internal/deps/ufw`: detect + configure idempotently        | 0.5d  | T01            | pending |
-| T14 | `internal/deps`: unit tests (mock executor for all deps)    | 1d    | T10-T13        | pending |
-| T15 | `internal/tui/wizard`: generic step wizard Bubble Tea model | 0.5d  | —              | pending |
-| T16 | `internal/tui/wizard/freshinstall`: steps 1–5 (preflight,   | 1d    | T04, T14, T15  | pending |
-|     | deps, tailscale, cloudflared variant A/B, UFW)              |       |                |         |
-| T17 | `internal/tui/wizard/freshinstall`: steps 6–10 (hardening,  | 1d    | T09, T16       | pending |
-|     | npm install openclaw, overlay-API stub install, summary)    |       |                |         |
-| T18 | Wire wizard into TUI menu item 1                            | 0.25d | T17            | pending |
-| T19 | Idempotency integration test (run wizard twice in Docker)   | 0.5d  | T18            | pending |
-| T20 | `docs/install.md` — fresh install guide                     | 0.25d | T17            | pending |
+| ID  | Title                                                     | Est   | Depends on    | Status  |
+|-----|-----------------------------------------------------------|-------|---------------|---------|
+| T01 | `internal/shell`: Executor interface + RealExecutor       | 0.5d  | —             | pending |
+| T02 | `internal/shell`: MockExecutor + RealExecutor tests       | 0.5d  | T01           | pending |
+| T03 | `internal/preflight`: distro + disk/RAM + tools checks    | 0.5d  | T01           | pending |
+| T04 | `internal/preflight`: port conflict check + unit tests    | 0.5d  | T02, T03      | pending |
+| T05 | `internal/config`: OverlayConfig YAML + Load/Save         | 0.5d  | —             | pending |
+| T06 | `internal/config`: envsubst renderer + tests              | 0.5d  | T05           | pending |
+| T07 | templates: sysctl, fstab, profile.d, cloudflared, units   | 0.25d | T06           | pending |
+| T08 | `internal/hardening`: sysctl + hidepid + profile          | 0.5d  | T01, T06, T07 | pending |
+| T09 | `internal/hardening`: mock-based tests, coverage ≥ 80%    | 0.5d  | T02, T08      | pending |
+| T10 | `internal/deps/node`: EnsureNode + mock tests             | 0.5d  | T02           | pending |
+| T11 | `internal/deps/tailscale`: EnsureTailscale + mock tests   | 0.5d  | T02           | pending |
+| T12 | `internal/deps/cloudflared`: EnsureCloudflared A+B        | 1d    | T02, T06      | pending |
+| T13 | `internal/deps/cloudflared`: mock tests, coverage ≥ 80%   | 0.5d  | T02, T12      | pending |
+| T14 | `internal/deps/ufw`: EnsureUFW + mock tests               | 0.5d  | T02           | pending |
+| T15 | `internal/tui/wizard`: generic WizardModel                | 0.5d  | —             | pending |
+| T16 | `internal/tui/wizard`: WizardModel unit tests             | 0.5d  | T15           | pending |
+| T17 | `internal/tui/wizard/freshinstall`: steps 1–5             | 1d    | T04, T11, T15 | pending |
+| T18 | `internal/tui/wizard/freshinstall`: steps 6–10            | 1d    | T09, T12, T17 | pending |
+| T19 | freshinstall wizard unit tests (mock executor throughout) | 0.5d  | T02, T18      | pending |
+| T20 | Wire wizard into TUI menu item 1; `docs/install.md`       | 0.25d | T19           | pending |
 
-**Total estimate:** ~11 person-days. Calendar: 2 weeks with parallel work on
-T01/T05/T07/T15 in first days.
+**Total: ~11 person-days.**
 
 ---
 
-### T01: `internal/shell` — safe exec wrapper
+### T01: `internal/shell` — Executor interface + RealExecutor
 
-**Description.** All subprocess calls in the overlay go through this wrapper.
-Captures stdout+stderr, enforces a configurable timeout, emits an audit log
-entry on completion (action=`shell_exec`, target=command, result=ok/error).
+**Description.** Single abstraction for all subprocess calls. Every package in
+this project that needs to run a command depends on `Executor`, never on
+`os/exec` directly. This is what makes the entire codebase testable without
+a VPS.
 
 **Acceptance criteria.**
 
-- [ ] `func Exec(ctx context.Context, opts ExecOpts) (ExecResult, error)` where
-  `ExecOpts{Cmd []string; Timeout time.Duration; AuditLogger audit.Logger; Sudo bool}`.
-- [ ] `Sudo: true` prepends `sudo` to the command.
-- [ ] `ExecResult{Stdout, Stderr string; ExitCode int}`.
-- [ ] Timeout enforced via `context.WithTimeout`; on expiry returns `ErrTimeout`.
-- [ ] Audit log entry emitted for every call (ok or error).
-- [ ] Unit tests: success, non-zero exit, timeout, sudo prepend. Coverage ≥ 80%.
+- [ ] `internal/shell/exec.go` exports `Executor` interface, `ExecOpts`,
+  `ExecResult`, `ErrTimeout`, `ErrNonZeroExit`.
+- [ ] `RealExecutor` implements `Executor` using `os/exec` + `context.WithTimeout`.
+- [ ] `Sudo: true` prepends `sudo` to `cmd[0]`.
+- [ ] Stdout and Stderr always captured (never streamed to os.Stdout in tests).
+- [ ] Emits `audit.Event{Action: ActionShellExec}` after every call.
+- [ ] `ActionShellExec` added to `internal/audit/events.go`.
+
+**Test plan.** T02 covers this. No system commands called in T01 tests —
+only that the struct satisfies the interface.
 
 ---
 
-### T02: `internal/preflight` — distro + resource checks
+### T02: `internal/shell` — MockExecutor + RealExecutor tests
 
-**Description.** Checks that the VPS is a supported distro (Ubuntu 22.04+/
-Debian 12+), has ≥ 5 GB free disk, ≥ 1 GB RAM, and that `systemd`, `useradd`,
-`loginctl` are present in PATH.
+**Description.** `MockExecutor` is the test double used by every other package.
+It records calls and returns pre-programmed responses.
 
 **Acceptance criteria.**
 
-- [ ] `func CheckAll(ctx context.Context, exec shell.Executor) ([]CheckResult, error)`.
-- [ ] `CheckResult{Name, Status string; OK bool; Detail string}`.
-- [ ] Distro parsed from `/etc/os-release`.
-- [ ] Disk checked via `syscall.Statfs` (pure Go, no exec).
-- [ ] RAM checked via `/proc/meminfo` parsing.
-- [ ] Tool presence checked via `exec.LookPath`-equivalent.
-- [ ] Each check is individually pass/warn/fail with human-readable `Detail`.
+- [ ] `MockExecutor` in `internal/shell/mock.go` (exported, usable from other
+  packages' tests):
+  ```go
+  type MockExecutor struct {
+      Calls    []ExecOpts
+      Responses []ExecResult // consumed in order; last repeated if exhausted
+      Errors   []error
+  }
+  func (m *MockExecutor) Run(ctx, opts) (ExecResult, error)
+  ```
+- [ ] `TestRealExecutor_SimpleCommand` — runs `echo hello`, asserts stdout.
+- [ ] `TestRealExecutor_Timeout` — runs `sleep 10` with 50ms timeout, asserts
+  `ErrTimeout`.
+- [ ] `TestRealExecutor_NonZeroExit` — runs `false`, asserts `ErrNonZeroExit`.
+- [ ] `TestMockExecutor_RecordsCalls` — verifies call recording.
+- [ ] Coverage ≥ 80%.
 
 ---
 
-### T03: `internal/preflight` — port conflict check
+### T03: `internal/preflight` — distro + resource checks
 
-**Description.** Runs `ss -tlnp` (or parses `/proc/net/tcp`) to detect
-anything listening on ports 18789–19999 before we allocate from that pool.
+**Description.** Checks that the host is a supported distro, has sufficient
+disk/RAM, and has required tools. Uses `Executor` for tool presence checks,
+pure Go for disk/RAM (no exec needed).
 
 **Acceptance criteria.**
 
-- [ ] Returns list of `{Port, PID, Process}` for occupied ports in range.
-- [ ] If list is non-empty, emits a warning (not a hard error) — admin decides.
-- [ ] Works with mock executor in tests.
+- [ ] `type Checker struct{ Exec shell.Executor; OSReleasePath string }`.
+- [ ] `func (c Checker) CheckAll(ctx) ([]Result, error)` where
+  `Result{Name, Detail string; OK bool; Level string /* "ok"|"warn"|"fail" */}`.
+- [ ] Distro: parse `OSReleasePath` (default `/etc/os-release`); accept Ubuntu
+  22.04+ and Debian 12+; return `Level:"warn"` for others (not hard fail —
+  admin decides).
+- [ ] Disk: `syscall.Statfs` on `/`, warn if < 5 GB free.
+- [ ] RAM: parse `/proc/meminfo`, warn if < 1 GB total.
+- [ ] Tools: `which systemd`, `which useradd`, `which loginctl` via Executor.
+- [ ] `OSReleasePath` injectable so tests use a fixture file, not the real one.
 
 ---
 
-### T04: `internal/preflight` unit tests
+### T04: `internal/preflight` — port check + unit tests
+
+**Description.** Detect processes listening on ports 18789–19999 by parsing
+`/proc/net/tcp` (pure Go, no exec) or via mock executor for `ss -tlnp`.
 
 **Acceptance criteria.**
 
-- [ ] `TestDistroCheckUbuntu22` (mock `/etc/os-release`).
-- [ ] `TestDistroCheckUnsupported` (e.g. Alpine).
-- [ ] `TestDiskCheckPass` / `TestDiskCheckFail`.
-- [ ] `TestRAMCheckPass` / `TestRAMCheckFail`.
-- [ ] `TestPortConflictDetected` (mock `ss` output).
-- [ ] Coverage ≥ 80% for `internal/preflight`.
+- [ ] `func (c Checker) CheckPorts(ctx) ([]PortConflict, error)` where
+  `PortConflict{Port int; PID int; Process string}`.
+- [ ] Prefers `/proc/net/tcp` parsing (pure Go); falls back to `ss -tlnp` via
+  Executor if `/proc/net/tcp` is unavailable.
+- [ ] Unit tests (all via fixtures/mock, no real network sockets):
+  - `TestDistroCheckUbuntu22` — fixture `/etc/os-release`.
+  - `TestDistroCheckUnknown` — warns, does not fail.
+  - `TestDiskCheckWarnBelowThreshold`.
+  - `TestRAMCheckWarnBelowThreshold`.
+  - `TestPortConflictDetected` — mock `/proc/net/tcp` or mock `ss` output.
+  - `TestCheckAllReturnsAllResults`.
+- [ ] Coverage ≥ 80%.
 
 ---
 
-### T05: `internal/config` — overlay config YAML
+### T05: `internal/config` — OverlayConfig YAML
 
-**Description.** Read/write `/etc/openclaw-multi/config.yml`. Schema:
-
-```yaml
-domain: ""           # Cloudflare domain (e.g. example.com)
-subdomain: "openclaw" # wildcard prefix
-tunnel_id: ""        # cloudflared tunnel UUID
-tunnel_mode: "account"  # "account" | "quick"
-port_range_start: 18789
-port_range_step: 20
-node_version_min: "22.16.0"
-notifications:
-  telegram_token: ""
-  telegram_chat_id: ""
-```
+**Description.** Read/write `/etc/openclaw-multi/config.yml`. All paths
+injectable for tests.
 
 **Acceptance criteria.**
 
-- [ ] `func Load(path string) (*OverlayConfig, error)` — returns defaults if
-  file absent.
-- [ ] `func Save(path string, cfg *OverlayConfig) error` — writes atomically
-  (temp file + rename).
-- [ ] JSON-Schema for config in `schemas/overlay-config.schema.json`.
-- [ ] Unit tests: load defaults, load from file, save, save+reload roundtrip.
+- [ ] `OverlayConfig` struct with fields matching master plan §5 config:
+  `Domain`, `Subdomain`, `TunnelID`, `TunnelMode` (`"account"|"quick"`),
+  `PortRangeStart`, `PortRangeStep`, `NodeVersionMin`,
+  `Notifications{TelegramToken, TelegramChatID string}`.
+- [ ] `func Load(path string) (*OverlayConfig, error)` — returns struct with
+  defaults if file absent (`ErrNotFound` wrapped).
+- [ ] `func Save(path string, cfg *OverlayConfig) error` — atomic write
+  (temp file + `os.Rename`).
+- [ ] `schemas/overlay-config.schema.json` — JSON Schema for the config.
+- [ ] Unit tests: load defaults, load fixture, save + reload roundtrip,
+  save to non-existent dir returns error.
+- [ ] Coverage ≥ 80%.
 
 ---
 
-### T06: `internal/config` — envsubst template renderer
+### T06: `internal/config` — envsubst renderer
 
-**Description.** Renders files in `templates/` by substituting `${VAR}` tokens
-from a `map[string]string`. Used to generate systemd units, cloudflared config,
-sysctl file, etc.
+**Description.** Render `templates/*.tmpl` files by substituting `${VAR}`
+tokens. Used to produce systemd units, cloudflared config, sysctl file, etc.
 
 **Acceptance criteria.**
 
-- [ ] `func Render(tmplPath string, vars map[string]string) (string, error)`.
-- [ ] Unknown `${VAR}` tokens → error (fail fast, no silent empty strings).
-- [ ] `func RenderToFile(tmplPath, outPath string, vars map[string]string, mode os.FileMode) error`
-  — writes atomically.
-- [ ] Unit tests with fixture templates. Coverage ≥ 80%.
+- [ ] `func Render(tmpl string, vars map[string]string) (string, error)` —
+  takes template content as string (caller reads the file).
+- [ ] `func RenderFile(tmplPath string, vars map[string]string) (string, error)`
+  — reads file, calls Render.
+- [ ] `func WriteFile(tmplPath, outPath string, vars map[string]string, mode os.FileMode) error`
+  — renders + writes atomically.
+- [ ] Unknown `${VAR}` in template → `ErrUnknownVar{Var string}` (fail fast).
+- [ ] Unit tests with inline template strings (no real file I/O). Coverage ≥ 80%.
 
 ---
 
 ### T07: Config templates
 
-**Description.** Create all template files needed for Phase 1 install steps.
+**Description.** All template files for Phase 1 install steps.
 
 **Acceptance criteria.**
 
-- [ ] `templates/sysctl-overlay.conf` — kernel hardening params
-  (`kernel.yama.ptrace_scope=2`, `kernel.dmesg_restrict=1`,
-  `net.ipv4.conf.all.rp_filter=1`).
-- [ ] `templates/fstab-proc-hidepid` — single fstab line fragment for hidepid=2.
-- [ ] `templates/profile-d-openclaw.sh` — sets `umask 0077` and
-  `NODE_COMPILE_CACHE=/var/cache/openclaw-compile`.
+- [ ] `templates/sysctl-overlay.conf` — kernel hardening:
+  `kernel.yama.ptrace_scope = 2`, `kernel.dmesg_restrict = 1`,
+  `net.ipv4.conf.all.rp_filter = 1`.
+- [ ] `templates/fstab-proc-hidepid` — single fstab fragment:
+  `proc /proc proc defaults,hidepid=2,gid=adm 0 0`.
+- [ ] `templates/profile-d-openclaw.sh` — `umask 0077` +
+  `export NODE_COMPILE_CACHE=/var/cache/openclaw-compile`.
 - [ ] `templates/cloudflared-config.tmpl` — minimal cloudflared config with
-  `${TUNNEL_ID}`, `${TUNNEL_CREDENTIALS_FILE}`, catch-all 404 ingress.
+  `${TUNNEL_ID}`, `${TUNNEL_CREDENTIALS_FILE}`, catch-all 404.
 - [ ] `templates/openclaw-overlay-api.service.tmpl` — systemd unit for the
-  daemon (stub for now: `ExecStart=/usr/local/bin/openclaw-overlay-api`).
-- [ ] `templates/openclaw-gateway.service.tmpl` — per-user systemd --user unit
-  (used in Phase 2, stub here).
-- [ ] `make schema-check` validates all templates exist.
+  overlay-API daemon.
+- [ ] `templates/openclaw-gateway.service.tmpl` — per-user `--user` unit stub
+  (filled in Phase 2).
+- [ ] `make schema-check` extended to verify all templates exist.
 
 ---
 
-### T08: `internal/hardening` — host hardening writes
+### T08: `internal/hardening` — host hardening logic
 
-**Description.** Applies sysctl, hidepid, profile.d using the shell executor
-and template renderer. All operations are idempotent (check before write).
+**Description.** Idempotent functions to apply sysctl, hidepid, profile.d.
+All file writes go through injectable `fs` helper (interface with `ReadFile`,
+`WriteFile`, `Stat`) so tests never touch real files.
 
 **Acceptance criteria.**
 
-- [ ] `func ApplySysctl(ctx, exec, renderer) error` — writes
-  `/etc/sysctl.d/openclaw-overlay.conf`, runs `sudo sysctl --system`.
-  Skip if file already identical.
-- [ ] `func ApplyHidepid(ctx, exec, renderer) error` — adds hidepid=2 line to
-  `/etc/fstab` if not present; runs `sudo mount -o remount /proc`.
-- [ ] `func ApplyProfile(ctx, exec, renderer) error` — writes
-  `/etc/profile.d/openclaw.sh`; creates `/var/cache/openclaw-compile` with
-  `chmod 1777`.
-- [ ] Each function idempotent: calling twice produces no error and no change.
-- [ ] Audit log entry per operation.
+- [ ] `type FS interface{ ReadFile, WriteFile, Stat, MkdirAll }` in
+  `internal/shell/fs.go` (alongside Executor).
+- [ ] `RealFS` uses `os` package. `MemFS` is the in-memory test double.
+- [ ] `func ApplySysctl(ctx, exec Executor, fs FS, renderer config.Renderer) error`
+  — writes `/etc/sysctl.d/openclaw-overlay.conf` if content differs; then
+  `sudo sysctl --system` via Executor.
+- [ ] `func ApplyHidepid(ctx, exec Executor, fs FS) error` — appends
+  hidepid line to `/etc/fstab` if not present; then
+  `sudo mount -o remount /proc` via Executor.
+- [ ] `func ApplyProfile(ctx, exec Executor, fs FS, renderer config.Renderer) error`
+  — writes `/etc/profile.d/openclaw.sh`; `sudo mkdir -p /var/cache/openclaw-compile`,
+  `sudo chmod 1777 ...` via Executor.
+- [ ] Each function emits audit log entries.
 
 ---
 
@@ -296,205 +351,210 @@ and template renderer. All operations are idempotent (check before write).
 
 **Acceptance criteria.**
 
-- [ ] Mock executor captures what commands were called.
-- [ ] `TestApplySysctlIdempotent` — second call issues no sudo commands.
-- [ ] `TestApplyHidepidAddsLine`.
+- [ ] All tests use `MemFS` + `MockExecutor`.
+- [ ] `TestApplySysctlWritesFile` — MemFS contains the rendered content.
+- [ ] `TestApplySysctlIdempotent` — second call: file unchanged, zero
+  executor calls for sysctl.
+- [ ] `TestApplyHidepidAppendsLine` — fstab gets the hidepid fragment.
+- [ ] `TestApplyHidepidIdempotent` — line already present, no duplicate.
 - [ ] `TestApplyProfileCreatesFile`.
 - [ ] Coverage ≥ 80%.
 
 ---
 
-### T10: `internal/deps/node` — Node.js detect + install
-
-**Description.** Idempotent: if Node.js ≥ 22.16 is already present, skip.
+### T10: `internal/deps/node` — EnsureNode
 
 **Acceptance criteria.**
 
-- [ ] `func EnsureNode(ctx, exec, cfg) error`.
-- [ ] Detect: `node --version` → parse semver, compare to `cfg.NodeVersionMin`.
-- [ ] If missing or too old: run nodesource setup script (stubbed in tests).
-- [ ] Returns `ErrNodeUnsupportedDistro` if distro is not Debian/Ubuntu.
+- [ ] `func EnsureNode(ctx, exec Executor, minVersion string) (NodeStatus, error)`.
+- [ ] `NodeStatus{Installed bool; Version string; Skipped bool}`.
+- [ ] Detect: `node --version` via Executor, parse semver, compare to minVersion.
+- [ ] If already ≥ minVersion: `Skipped: true`, no further calls.
+- [ ] If missing/old: command sequence recorded in MockExecutor as:
+  `curl -fsSL <nodesource-url> | sudo -E bash -` → `sudo apt-get install -y nodejs`.
+- [ ] Audit entry on install.
+- [ ] Unit tests: already installed (correct version), already installed (old version
+  → needs upgrade), not installed. Coverage ≥ 80%.
 
 ---
 
-### T11: `internal/deps/tailscale` — detect + install stub
-
-**Description.** Idempotent install. Interactive `tailscale up --ssh` is
-stub-able for non-interactive/test environments.
+### T11: `internal/deps/tailscale` — EnsureTailscale
 
 **Acceptance criteria.**
 
-- [ ] `func EnsureTailscale(ctx, exec, interactive bool) (TailscaleStatus, error)`.
+- [ ] `func EnsureTailscale(ctx, exec Executor, interactive bool) (TailscaleStatus, error)`.
 - [ ] `TailscaleStatus{Installed, Running, LoggedIn bool; IP string}`.
-- [ ] If `tailscale status` exits 0 — already logged in, skip `tailscale up`.
-- [ ] If `interactive=false` (test/CI) — skip `tailscale up`, return status with
-  `LoggedIn=false` and no error.
-- [ ] Install path: `curl -fsSL https://tailscale.com/install.sh | sudo sh`
-  (stubbed in tests).
+- [ ] Detect: `tailscale status --json` via Executor; parse JSON into status.
+- [ ] Already running+logged in → `Skipped: true`.
+- [ ] Not installed → install command sequence via Executor.
+- [ ] `interactive=false` (always in tests and CI): skip `tailscale up`, return
+  `LoggedIn: false` without error.
+- [ ] Unit tests: all three states (running, not running, not installed).
+  Coverage ≥ 80%.
 
 ---
 
-### T12: `internal/deps/cloudflared` — detect + install + config gen
+### T12: `internal/deps/cloudflared` — EnsureCloudflared
 
-**Description.** Most complex dep step. Two paths (§6.2 step 4):
-- **Variant A**: account-based, creates named tunnel, generates config.yml.
-- **Variant B**: quick tunnel fallback (ephemeral URL, no account).
+**Description.** Most complex dep. Two modes: Variant A (named tunnel with
+Cloudflare account) and Variant B (quick tunnel, no account).
 
 **Acceptance criteria.**
 
-- [ ] `func EnsureCloudflared(ctx, exec, cfg, mode string) error`.
-- [ ] Detect: `command -v cloudflared` + check cert.pem / credentials file.
-- [ ] Install: download `.deb` from cloudflared GitHub releases, `dpkg -i`.
-- [ ] Variant A: call `cloudflared tunnel create openclaw-multi`, parse tunnel
-  ID, write credentials JSON path to config, render `cloudflared-config.tmpl`,
-  install and start `cloudflared.service`.
-- [ ] Variant B: write a minimal quick-tunnel config, warn admin about ephemeral
-  URLs.
-- [ ] If existing `config.yml` found: timestamped backup + ask overwrite
-  (represented as a `ConflictPolicy` enum: `Backup | Skip | Overwrite`).
-- [ ] Validate config after write: `cloudflared tunnel ingress validate`.
-- [ ] Audit log entry on every mutating step.
+- [ ] `func EnsureCloudflared(ctx, exec Executor, fs FS, renderer config.Renderer, cfg *config.OverlayConfig, mode string) error`.
+- [ ] Detect: `cloudflared --version` + check credentials file existence via FS.
+- [ ] **Variant A** command sequence (via Executor):
+  - `cloudflared tunnel create openclaw-multi` → parse tunnel ID from output.
+  - `cloudflared tunnel route dns openclaw-multi *.${subdomain}.${domain}`.
+  - Render `cloudflared-config.tmpl` → write via FS.
+  - `cloudflared tunnel ingress validate /etc/cloudflared/config.yml`.
+  - `sudo systemctl enable --now cloudflared`.
+- [ ] **Variant B** command sequence: write minimal quick-tunnel config, start
+  with `--url` flag.
+- [ ] `ConflictPolicy` enum (`Backup | Skip | Overwrite`) applied when existing
+  config.yml detected.
+- [ ] Backup: write `config.yml.<timestamp>` via FS before overwrite.
+- [ ] Audit entries for every mutating step.
 
 ---
 
-### T13: `internal/deps/ufw` — detect + configure idempotently
-
-**Description.** UFW may already be active with existing rules. We must not
-reset those — only ensure our requirements are met.
+### T13: `internal/deps/cloudflared` — mock tests
 
 **Acceptance criteria.**
 
-- [ ] `func EnsureUFW(ctx, exec, extraPorts []int) error`.
-- [ ] Parse `ufw status verbose` to understand current state.
-- [ ] If inactive: `ufw default deny incoming`, `ufw default allow outgoing`,
-  `ufw allow <extraPorts>`, `ufw enable`.
-- [ ] If active: verify `default deny incoming` is set; add our rules without
-  disturbing others.
-- [ ] Idempotent: second call on already-configured UFW is a no-op.
+- [ ] All via `MockExecutor` + `MemFS`.
+- [ ] `TestVariantA_FreshInstall` — full command sequence verified.
+- [ ] `TestVariantA_AlreadyInstalled` — only validation called, no install.
+- [ ] `TestVariantB_QuickTunnel` — correct minimal config written.
+- [ ] `TestConflictPolicy_Backup` — backup file created, original overwritten.
+- [ ] `TestConflictPolicy_Skip` — no write.
+- [ ] Coverage ≥ 80%.
 
 ---
 
-### T14: `internal/deps` unit tests
+### T14: `internal/deps/ufw` — EnsureUFW
 
 **Acceptance criteria.**
 
-- [ ] Mock executor records calls; assertions verify correct command sequences.
-- [ ] `TestEnsureNodeAlreadyInstalled` — no install commands issued.
-- [ ] `TestEnsureNodeMissing` — install script called.
-- [ ] `TestEnsureTailscaleRunning` — no-op.
-- [ ] `TestEnsureCloudflaredVariantA` — creates tunnel, writes config, starts service.
-- [ ] `TestEnsureCloudflaredExistingConfig_Backup` — backup created.
-- [ ] `TestEnsureUFWAlreadyActive` — only missing rules added.
-- [ ] Coverage ≥ 80% for each `internal/deps/*` file.
+- [ ] `func EnsureUFW(ctx, exec Executor, extraPorts []int) (UFWStatus, error)`.
+- [ ] `UFWStatus{Active bool; DenyIncoming, AllowOutgoing bool; AddedPorts []int}`.
+- [ ] Parse `ufw status verbose` output via Executor to understand current state.
+- [ ] If not active: full setup sequence via Executor.
+- [ ] If active: verify `default deny incoming`; only add missing rules.
+- [ ] Idempotent: re-run with same ports → zero Executor calls for existing rules.
+- [ ] Unit tests: inactive UFW, active UFW (correct), active UFW (missing rule).
+  Coverage ≥ 80%.
 
 ---
 
-### T15: `internal/tui/wizard` — generic step wizard model
+### T15: `internal/tui/wizard` — generic WizardModel
 
-**Description.** Reusable Bubble Tea model for a linear step-by-step wizard.
-Each step has a name, runs a function, shows a spinner while running, shows
-result (✓ / ✗ / ⚠), and proceeds to next step automatically on success.
+**Description.** Reusable Bubble Tea step-wizard. Each step is a `Step`
+interface implementation; the model drives them sequentially, shows progress,
+handles errors.
 
 **Acceptance criteria.**
 
-- [ ] `type Step interface { Name() string; Run(ctx) error; IsIdempotent() bool }`.
-- [ ] `type WizardModel struct` — Bubble Tea model implementing Init/Update/View.
-- [ ] Progress bar: `[3/10] Installing cloudflared...` spinner.
-- [ ] On step error: shows error detail + "Retry / Skip / Abort" options.
-- [ ] On all steps complete: dispatches `WizardDoneMsg`.
-- [ ] Unit tests: step sequencing, error → retry flow.
+- [ ] `type Step interface{ Name() string; Run(ctx) error }`.
+- [ ] `type WizardModel` with `Init() / Update() / View()`.
+- [ ] Progress indicator: `[2/10] Installing cloudflared...` with spinner.
+- [ ] On step error: display stderr/error + options `[R]etry [S]kip [A]bort`.
+- [ ] On all steps done: dispatch `WizardDoneMsg{Outcomes []StepOutcome}`.
+- [ ] Window resize handled.
 
 ---
 
-### T16: Fresh install wizard steps 1–5
-
-**Description.** Implement wizard steps for the first half of §6.2:
-1. Pre-flight check (distro, disk, RAM, tools, ports).
-2. Install/verify Node.js.
-3. Install/verify Tailscale (interactive flag from TUI context).
-4. Configure Cloudflare Tunnel (ask Variant A or B, collect domain/token).
-5. Configure UFW (ask for extra ports).
+### T16: `internal/tui/wizard` unit tests
 
 **Acceptance criteria.**
 
-- [ ] Each step is a concrete `Step` implementation wiring into `internal/preflight`
-  and `internal/deps`.
-- [ ] Step 4 shows a two-option selector (Variant A / Variant B) before running.
-- [ ] Domain + API token input uses a `bubbles/textinput` form.
-- [ ] Collected config is saved to `/etc/openclaw-multi/config.yml` after step 4.
-- [ ] All steps idempotent: re-running the wizard from step 1 skips already-done
-  steps (checks state before acting).
+- [ ] `TestWizardAdvancesOnSuccess` — mock steps all return nil → model
+  reaches done state.
+- [ ] `TestWizardShowsErrorOnFailure` — step returns error → error screen shown.
+- [ ] `TestWizardRetry` — Retry key re-runs the failed step.
+- [ ] `TestWizardSkip` — Skip key moves to next step.
+- [ ] `TestWizardAbort` — Abort key dispatches quit cmd.
+- [ ] Coverage ≥ 80%.
 
 ---
 
-### T17: Fresh install wizard steps 6–10
+### T17: freshinstall wizard — steps 1–5
 
-**Description.** Second half of §6.2:
-6. Host hardening (sysctl, hidepid, profile.d).
-7. `npm install -g openclaw@latest` (with version check, no onboard).
-8. Install overlay-API stub systemd service.
-9. (Skipped: "Add first user" — deferred to Phase 2. Wizard shows info screen.)
-10. Summary screen: what was done, file paths, next steps.
+**Description.** Concrete `Step` implementations for first half of §6.2.
+Each step wraps the corresponding `internal/` package call.
 
 **Acceptance criteria.**
 
-- [ ] Steps 6–8 wire into `internal/hardening` and `internal/deps`.
-- [ ] Step 8: copies `bin/openclaw-overlay-api` to `/usr/local/bin/`, renders
-  `openclaw-overlay-api.service.tmpl`, runs `systemctl enable --now`.
-- [ ] Step 9: info panel "Next: use menu item 3 to add users."
-- [ ] Step 10: summary lists each step's outcome (✓/✗/skipped) and key paths
-  (`/etc/openclaw-multi/config.yml`, `/var/log/openclaw-multi/audit.log`).
-- [ ] State persisted in state.db: `meta` key `install_completed = true` with
-  timestamp.
+- [ ] `Step1PreFlight` — wraps `preflight.CheckAll`; on warn shows detail but
+  continues; on fail aborts.
+- [ ] `Step2Node` — wraps `deps.EnsureNode`.
+- [ ] `Step3Tailscale` — wraps `deps.EnsureTailscale(interactive=false)` during
+  tests; `true` in real execution.
+- [ ] `Step4Cloudflared` — before running, TUI asks variant A or B + collects
+  domain/token via `bubbles/textinput`; saves to `OverlayConfig`.
+- [ ] `Step5UFW` — asks for extra ports (comma-separated input); wraps
+  `deps.EnsureUFW`.
+- [ ] Steps 4–5 update `OverlayConfig` and call `config.Save`.
+- [ ] All injectable (Executor, FS, Renderer injected at construction time).
 
 ---
 
-### T18: Wire wizard into TUI menu item 1
+### T18: freshinstall wizard — steps 6–10
 
 **Acceptance criteria.**
 
-- [ ] Menu item 1 launches `freshinstall.WizardModel` instead of placeholder.
-- [ ] Pressing `q`/`Esc` mid-wizard prompts "Abort installation? (y/n)".
-- [ ] On wizard completion, returns to main menu with status bar updated
-  (shows installed state placeholders until Phase 4 health check is built).
+- [ ] `Step6Hardening` — wraps `hardening.Apply*`.
+- [ ] `Step7OpenClaw` — command via Executor:
+  `sudo npm install -g openclaw@latest`; reads back version; writes to state.db.
+- [ ] `Step8OverlayAPI` — copies binary path to `/usr/local/bin/` (via FS),
+  renders and writes systemd unit (via FS + Renderer), then
+  `sudo systemctl daemon-reload && sudo systemctl enable --now openclaw-overlay-api`
+  (via Executor).
+- [ ] `Step9AddUser` — info-only screen: "Phase complete. Use menu item 3 to
+  add users."
+- [ ] `Step10Summary` — aggregates `[]StepOutcome` from `WizardDoneMsg`,
+  renders a table: step name / status / key paths. Shows `config.yml` path,
+  audit log path, `tailscale ip` output.
+- [ ] `meta` key `install_completed` written to state.db with RFC3339 timestamp.
 
 ---
 
-### T19: Idempotency integration test
-
-**Description.** Docker-based test (ubuntu:22.04) that runs the wizard twice
-and verifies the second run is a no-op for already-done steps.
+### T19: freshinstall wizard unit tests
 
 **Acceptance criteria.**
 
-- [ ] `test/e2e/phase-1/idempotency.sh`:
-  1. Runs wizard (non-interactively via `expect`) with mock cloudflared/tailscale.
-  2. Verifies `meta.install_completed` in state.db.
-  3. Re-runs wizard — checks that no error occurs and audit log shows
-     "already configured, skipping" entries.
-- [ ] `make test-phase-1` runs this script.
-- [ ] CI updated to include `test-phase-1` in the `shellcheck` + build gate.
+- [ ] All steps constructed with `MockExecutor` + `MemFS` + fixture configs.
+- [ ] `TestStep1PreFlight_Pass` / `_Warn` / `_Fail`.
+- [ ] `TestStep2Node_Skip` (already installed) / `_Install`.
+- [ ] `TestStep3Tailscale_AlreadyRunning` / `_NotInstalled`.
+- [ ] `TestStep4Cloudflared_VariantA` / `_VariantB`.
+- [ ] `TestStep5UFW_FreshSetup` / `_Idempotent`.
+- [ ] `TestStep6Hardening_WritesFiles`.
+- [ ] `TestStep7OpenClaw_InstallCommand`.
+- [ ] `TestStep8OverlayAPI_WritesUnitAndEnables`.
+- [ ] `TestStep10Summary_RendersTable`.
+- [ ] Coverage ≥ 80% for `internal/tui/wizard/freshinstall`.
 
 ---
 
-### T20: `docs/install.md`
+### T20: Wire into TUI + docs
 
 **Acceptance criteria.**
 
-- [ ] Covers: prerequisites, running `openclaw-multi`, going through wizard,
-  Variant A vs B Cloudflare choice, expected outcome.
-- [ ] Includes troubleshooting section for common failures (UFW conflict, port
-  conflict, Node.js version too old).
-- [ ] ≤ 300 lines.
+- [ ] Menu item 1 launches `freshinstall.New(store, logger, exec, fs, renderer)`
+  instead of the placeholder.
+- [ ] `Esc`/`q` mid-wizard prompts confirm-abort.
+- [ ] `docs/install.md` (≤ 300 lines): prerequisites, running the wizard,
+  Variant A vs B CF choice, expected outcome, troubleshooting section.
+- [ ] CHANGELOG `## v0.1.0` entry added.
 
 ---
 
 ## 6. Definition of Done for Phase 1
 
 - [ ] All 20 tasks completed
-- [ ] `make ci` passes on `main`
-- [ ] `make test-phase-1` passes (Docker idempotency test)
-- [ ] Coverage ≥ 80% on all new `internal/*` packages
+- [ ] `make ci` passes: lint clean, all tests green, amd64+arm64 build
+- [ ] Coverage ≥ 80% on every new `internal/*` package
 - [ ] `docs/install.md` merged
 - [ ] CHANGELOG updated under `## v0.1.0`
 - [ ] Tag `v0.1.0` created (no public release)
@@ -504,28 +564,35 @@ and verifies the second run is a no-op for already-done steps.
 
 ## 7. Phase smoke test suite
 
-| Test                    | What it proves                                                  |
-|-------------------------|-----------------------------------------------------------------|
-| `phase-1/idempotency.sh`| Wizard runs twice, second run is no-op, state.db reflects done |
+There are **no Docker/integration tests** that execute real system commands in
+Phase 1. All verification is via unit tests with `MockExecutor` + `MemFS`.
+
+| Test level  | What runs                                              | Where               |
+|-------------|--------------------------------------------------------|---------------------|
+| Unit        | MockExecutor + MemFS, no real FS/network/packages      | `go test ./...`     |
+| Build check | Both arches compile                                    | `make build-amd64 build-arm64` |
+
+A real live smoke test on a VPS is deferred until the owner authorises a
+deployment run after the MVP is complete.
 
 ---
 
 ## 8. Documentation deliverables
 
 - [ ] `docs/install.md` (T20)
-- [ ] Inline godoc on all exported types in new packages
-- [ ] CHANGELOG `## v0.1.0` entry
+- [ ] Godoc on all exported types in new packages
+- [ ] CHANGELOG `## v0.1.0`
 
 ---
 
 ## 9. Risks and mitigations
 
-| Risk                                              | Mitigation                                                         |
-|---------------------------------------------------|--------------------------------------------------------------------|
-| cloudflared CLI changes tunnel create flags       | Use Context7 to fetch current cloudflared docs before implementing |
-| Tailscale interactive flow is untestable in CI    | Stub with `interactive=false` path; real flow manual-tested        |
-| hidepid=2 breaks some systemd services            | Document known incompatibilities; make hidepid optional            |
-| npm install hangs in Docker (no network)          | Mock npm in Docker test; real network only in e2e VM tests         |
+| Risk                                                   | Mitigation                                          |
+|--------------------------------------------------------|-----------------------------------------------------|
+| cloudflared CLI flags change (output format)           | Use Context7 to fetch cloudflared docs before T12   |
+| Tailscale JSON status schema changes                   | Same — Context7 before T11                          |
+| Mock tests pass but real execution fails               | Accepted: real testing deferred to post-MVP by owner decision |
+| hidepid=2 breaks some systemd services in production   | Document as known risk in install.md; make it optional in Step6 |
 
 ---
 
