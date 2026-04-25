@@ -1,6 +1,6 @@
 module github.com/pdasilem/openclaw-multi
 
-go 1.26.0
+go 1.26.2
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.10

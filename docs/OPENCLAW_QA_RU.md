@@ -1,6 +1,6 @@
 # OpenClaw — Точечные ответы (VPS, Tailscale, linger, multi-user overlay)
 
-> Дополнение к [OPENCLAW_OVERVIEW_RU.md](./OPENCLAW_OVERVIEW_RU.md). Здесь —
+> Дополнение к [OPENCLAW_OVERVIEW_RU.md](OPENCLAW_OVERVIEW_RU.md). Здесь —
 > прямые ответы на три практических вопроса по эксплуатации на VPS.
 > Все ссылки в формате `путь:строка` относятся к ветке `main`.
 

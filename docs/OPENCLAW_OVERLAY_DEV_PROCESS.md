@@ -3,7 +3,7 @@
 > Iterative, phase-by-phase development process for the
 > `openclaw-multi` overlay project.
 >
-> Master architecture: [OPENCLAW_OVERLAY_PLAN_RU.md](./OPENCLAW_OVERLAY_PLAN_RU.md) (in Russian).
+> Master architecture: [OPENCLAW_OVERLAY_PLAN_RU.md](OPENCLAW_OVERLAY_PLAN_RU.md) (in Russian).
 > Working language for code, docs, commit messages, CI logs:
 > **English** (Russian is reserved for owner-facing planning docs).
 
@@ -32,9 +32,7 @@ These override everything else in this document:
 4. **golangci-lint v2+.** Config format: `version: "2"`, formatters in
    `formatters:` section, `gosimple` removed (merged into `staticcheck`).
 
-5. **Commits.** 1–2 commits per phase, squashed. Author always via
-   `git -c user.name="pdasilem" -c user.email="74730932+pdasilem@users.noreply.github.com"`.
-   Push via `gh auth setup-git`. Never modify global git config.
+5. **Commits.** 1–2 commits per phase, squashed. 
 
 6. **Releases.** Git tag per phase (`v0.<N>.0`) for tracking only.
    No GitHub Release until the owner explicitly requests one.
@@ -90,7 +88,7 @@ boundaries). They do not need to be different model instances.
 ## 3. Repository structure for the overlay project
 
 The overlay is a **separate repository** 
-(see master plan §11.2). Suggested name: `openclaw-multi`.
+(see master plan §11.2). Name: `openclaw-multi`.
 
 ```
 openclaw-multi/
@@ -224,7 +222,7 @@ Each phase goes through six steps:
                       └─────────┬──────────┘
                                 ↓
                       ┌────────────────────┐
-                      │ 4. Review each PR  │
+                      │ 4. Review PR       │
                       └─────────┬──────────┘
                                 ↓
                       ┌────────────────────┐

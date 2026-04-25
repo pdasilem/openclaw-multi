@@ -18,9 +18,9 @@ prior_retros: []
 > `linux-amd64` and `linux-arm64`. No real functionality yet — every
 > menu action prints "Not implemented yet".
 >
-> Master architecture: see [`OPENCLAW_OVERLAY_PLAN_RU.md`](./OPENCLAW_OVERLAY_PLAN_RU.md)
+> Master architecture: see [`OPENCLAW_OVERLAY_PLAN_RU.md`](../OPENCLAW_OVERLAY_PLAN_RU.md)
 > §3-5, §9 (Phase 0).
-> Workflow: see [`OPENCLAW_OVERLAY_DEV_PROCESS.md`](./OPENCLAW_OVERLAY_DEV_PROCESS.md).
+> Workflow: see [`OPENCLAW_OVERLAY_DEV_PROCESS.md`](../OPENCLAW_OVERLAY_DEV_PROCESS.md).
 
 ---
 

@@ -7,8 +7,8 @@
 > hardening-стандартом adversarial-grade изоляции.
 >
 > Контекст и обоснование решений — в
-> [OPENCLAW_OVERVIEW_RU.md](./OPENCLAW_OVERVIEW_RU.md) и
-> [OPENCLAW_QA_RU.md](./OPENCLAW_QA_RU.md).
+> [OPENCLAW_OVERVIEW_RU.md](OPENCLAW_OVERVIEW_RU.md) и
+> [OPENCLAW_QA_RU.md](OPENCLAW_QA_RU.md).
 > Этот документ — **план разработки**, не сама реализация.
 
 ---
