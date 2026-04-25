@@ -1,0 +1,6 @@
+[Unit]
+Description=OpenClaw encrypted backup for %i
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/openclaw-multi backup ${USERNAME}

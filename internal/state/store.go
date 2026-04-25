@@ -21,6 +21,9 @@ var ErrNoUser = fmt.Errorf("no user configured")
 // ErrNoRoute is returned when a route does not exist.
 var ErrNoRoute = fmt.Errorf("no route configured")
 
+// ErrNoBackup is returned when a backup record does not exist.
+var ErrNoBackup = fmt.Errorf("no backup configured")
+
 // Store is the SQLite-backed state store for the overlay.
 type Store struct {
 	db   *sql.DB
@@ -211,7 +214,7 @@ func (s *Store) SetUserStatus(ctx context.Context, username string, status UserS
 	return requireAffected(res, ErrNoUser)
 }
 
-// DeleteUser removes a managed user. Related routes/backups/ports cascade.
+// DeleteUser removes a managed user. Routes and ports cascade; backups remain.
 func (s *Store) DeleteUser(ctx context.Context, username string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE username = ?`, username)
 	if err != nil {
@@ -299,6 +302,78 @@ func (s *Store) SetRoutesEnabled(ctx context.Context, username string, enabled b
 	return nil
 }
 
+// ListBackupsByUser returns backup records for username, newest first.
+func (s *Store) ListBackupsByUser(ctx context.Context, username string) ([]Backup, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, username, ts, size_bytes, sha256, openclaw_version, encrypted, path
+		FROM backups
+		WHERE username = ?
+		ORDER BY ts DESC, id DESC`, username)
+	if err != nil {
+		return nil, fmt.Errorf("list backups for %q: %w", username, err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var backups []Backup
+	for rows.Next() {
+		b, err := scanBackup(rows)
+		if err != nil {
+			return nil, err
+		}
+		backups = append(backups, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list backups rows for %q: %w", username, err)
+	}
+	return backups, nil
+}
+
+// GetBackup returns a backup by ID.
+func (s *Store) GetBackup(ctx context.Context, id string) (*Backup, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, username, ts, size_bytes, sha256, openclaw_version, encrypted, path
+		FROM backups
+		WHERE id = ?`, id)
+	b, err := scanBackup(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNoBackup
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get backup %q: %w", id, err)
+	}
+	return &b, nil
+}
+
+// UpsertBackup inserts or updates backup metadata.
+func (s *Store) UpsertBackup(ctx context.Context, b Backup) error {
+	ts := formatOrNow(b.TS, time.Now().UTC().Format(time.RFC3339))
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO backups(id, username, ts, size_bytes, sha256, openclaw_version, encrypted, path)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			username = excluded.username,
+			ts = excluded.ts,
+			size_bytes = excluded.size_bytes,
+			sha256 = excluded.sha256,
+			openclaw_version = excluded.openclaw_version,
+			encrypted = excluded.encrypted,
+			path = excluded.path`,
+		b.ID, b.Username, ts, b.SizeBytes, b.SHA256, b.OpenClawVersion, boolInt(b.Encrypted), b.Path)
+	if err != nil {
+		return fmt.Errorf("upsert backup %q for %q: %w", b.ID, b.Username, err)
+	}
+	return nil
+}
+
+// DeleteBackup removes backup metadata by ID.
+func (s *Store) DeleteBackup(ctx context.Context, id string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM backups WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete backup %q: %w", id, err)
+	}
+	return requireAffected(res, ErrNoBackup)
+}
+
 type scanner interface {
 	Scan(dest ...any) error
 }
@@ -329,6 +404,18 @@ func scanRoute(row scanner) (Route, error) {
 	r.LastSeenCachedAt = parseDBTime(cachedAt)
 	r.LastSeenValue = parseDBTime(seenAt)
 	return r, nil
+}
+
+func scanBackup(row scanner) (Backup, error) {
+	var b Backup
+	var ts string
+	var encrypted int
+	if err := row.Scan(&b.ID, &b.Username, &ts, &b.SizeBytes, &b.SHA256, &b.OpenClawVersion, &encrypted, &b.Path); err != nil {
+		return Backup{}, err
+	}
+	b.TS = parseDBTime(ts)
+	b.Encrypted = encrypted == 1
+	return b, nil
 }
 
 func requireAffected(res sql.Result, notFound error) error {

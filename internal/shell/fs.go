@@ -15,6 +15,7 @@ type FS interface {
 	Stat(path string) (fs.FileInfo, error)
 	MkdirAll(path string, perm fs.FileMode) error
 	Rename(oldpath, newpath string) error
+	Remove(path string) error
 }
 
 // RealFS delegates to the os package.
@@ -24,6 +25,7 @@ func (RealFS) ReadFile(path string) ([]byte, error)         { return os.ReadFile
 func (RealFS) Stat(path string) (fs.FileInfo, error)        { return os.Stat(path) }
 func (RealFS) MkdirAll(path string, perm fs.FileMode) error { return os.MkdirAll(path, perm) }
 func (RealFS) Rename(oldpath, newpath string) error         { return os.Rename(oldpath, newpath) }
+func (RealFS) Remove(path string) error                     { return os.Remove(path) }
 
 func (RealFS) WriteFile(path string, data []byte, perm fs.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -75,6 +77,14 @@ func (m *MemFS) Rename(oldpath, newpath string) error {
 	}
 	m.Files[newpath] = data
 	delete(m.Files, oldpath)
+	return nil
+}
+
+func (m *MemFS) Remove(path string) error {
+	if _, ok := m.Files[path]; !ok {
+		return &os.PathError{Op: "remove", Path: path, Err: os.ErrNotExist}
+	}
+	delete(m.Files, path)
 	return nil
 }
 

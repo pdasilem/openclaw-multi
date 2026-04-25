@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS port_pool (
 
 CREATE TABLE IF NOT EXISTS backups (
     id               TEXT PRIMARY KEY NOT NULL,
-    username         TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+    username         TEXT NOT NULL,
     ts               DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     size_bytes       INTEGER NOT NULL DEFAULT 0,
     sha256           TEXT NOT NULL DEFAULT '',

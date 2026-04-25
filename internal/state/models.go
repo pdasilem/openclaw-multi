@@ -56,3 +56,15 @@ type Route struct {
 	LastSeenCachedAt time.Time
 	LastSeenValue    time.Time
 }
+
+// Backup represents an encrypted OpenClaw backup archive recorded in state.
+type Backup struct {
+	ID              string
+	Username        string
+	TS              time.Time
+	SizeBytes       int64
+	SHA256          string
+	OpenClawVersion string
+	Encrypted       bool
+	Path            string
+}

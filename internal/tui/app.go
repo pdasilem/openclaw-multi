@@ -12,6 +12,7 @@ import (
 
 	"github.com/pdasilem/openclaw-multi/internal/admin"
 	"github.com/pdasilem/openclaw-multi/internal/audit"
+	"github.com/pdasilem/openclaw-multi/internal/backup"
 	"github.com/pdasilem/openclaw-multi/internal/config"
 	"github.com/pdasilem/openclaw-multi/internal/shell"
 	"github.com/pdasilem/openclaw-multi/internal/state"
@@ -45,9 +46,10 @@ type Model struct {
 	wizard      tea.Model
 	users       userManagementModel
 
-	store       *state.Store
-	logger      *audit.Logger
-	userService userService
+	store         *state.Store
+	logger        *audit.Logger
+	userService   userService
+	backupService backupService
 }
 
 func newModel(store *state.Store, logger *audit.Logger, hostname, rootWarn string) Model {
@@ -90,7 +92,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, wiz.Init()
 		}
 		if msg.ItemID == 3 {
-			m.users = newUserManagement(m.userService)
+			m.users = newUserManagement(m.userService, m.backupService)
 			m.screen = screenUsers
 			return m, m.users.Init()
 		}
@@ -235,6 +237,8 @@ func Run() error {
 	fs := shell.RealFS{}
 	userManager := userops.NewManager(store, exec, fs, cfg, nil, logger)
 	userManager.TemplateDir = "/opt/openclaw-multi/templates"
+	backupManager := backup.NewManager(store, exec, fs, logger, backup.Options{TemplateDir: "/opt/openclaw-multi/templates"})
+	userManager.BeforeRemove = backupManager
 
 	existing, err := store.GetAdmin(ctx)
 
@@ -248,6 +252,7 @@ func Run() error {
 		fr := newFirstRun(store, logger, candidate)
 		m = newModel(store, logger, hostname, rootWarn)
 		m.userService = userManager
+		m.backupService = backupManager
 		m.screen = screenFirstRun
 		m.firstRun = fr
 	case err != nil:
@@ -276,6 +281,7 @@ func Run() error {
 		})
 		m = newModel(store, logger, hostname, rootWarn)
 		m.userService = userManager
+		m.backupService = backupManager
 	}
 
 	p := tea.NewProgram(m)

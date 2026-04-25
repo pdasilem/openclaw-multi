@@ -21,6 +21,16 @@ type failingRoutes struct {
 	err error
 }
 
+type removeHook struct {
+	called string
+	err    error
+}
+
+func (h *removeHook) BeforeRemove(_ context.Context, username string) error {
+	h.called = username
+	return h.err
+}
+
 func (f failingRoutes) EnableUserGateway(context.Context, state.User) (state.Route, error) {
 	return state.Route{}, f.err
 }
@@ -404,6 +414,44 @@ func TestManagerRemovePausedAndUnknown(t *testing.T) {
 	}
 	if exec.CallCount() != 3 {
 		t.Fatalf("expected 3 remove commands for paused user, got %d", exec.CallCount())
+	}
+}
+
+func TestManagerRemoveRunsBackupHookBeforeDestructiveCommands(t *testing.T) {
+	ctx := context.Background()
+	store := openUserTestStore(t)
+	exec := &shell.MockExecutor{Responses: []shell.ExecResult{shell.OKResponse("")}}
+	m := testManager(store, exec, watcherFS(), nil)
+	hook := &removeHook{}
+	m.BeforeRemove = hook
+	if err := store.UpsertUser(ctx, state.User{Username: "alice", Port: 18789, Status: state.UserStatusPaused}); err != nil {
+		t.Fatalf("UpsertUser: %v", err)
+	}
+	if err := m.Remove(ctx, RemoveRequest{Username: "alice"}); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if hook.called != "alice" {
+		t.Fatalf("expected backup hook for alice, got %q", hook.called)
+	}
+	if exec.CallCount() != 3 {
+		t.Fatalf("expected destructive commands after backup hook, got %d", exec.CallCount())
+	}
+}
+
+func TestManagerRemoveAbortsWhenBackupHookFails(t *testing.T) {
+	ctx := context.Background()
+	store := openUserTestStore(t)
+	exec := &shell.MockExecutor{Responses: []shell.ExecResult{shell.OKResponse("")}}
+	m := testManager(store, exec, watcherFS(), nil)
+	m.BeforeRemove = &removeHook{err: fmt.Errorf("backup failed")}
+	if err := store.UpsertUser(ctx, state.User{Username: "alice", Port: 18789, Status: state.UserStatusPaused}); err != nil {
+		t.Fatalf("UpsertUser: %v", err)
+	}
+	if err := m.Remove(ctx, RemoveRequest{Username: "alice"}); err == nil {
+		t.Fatal("expected backup hook error")
+	}
+	if exec.CallCount() != 0 {
+		t.Fatalf("expected no destructive commands after backup failure, got %d", exec.CallCount())
 	}
 }
 

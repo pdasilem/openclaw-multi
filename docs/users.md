@@ -41,8 +41,10 @@ Activate enables the gateway route, enables linger, starts user services, sets
 
 ## Remove
 
-Remove is destructive. Backup before remove belongs to Phase 3 and is not
-implemented yet.
+Remove is destructive. After Phase 3, remove is backup-first: a pre-remove
+backup runs before any route deletion, OpenClaw uninstall, linger disable,
+`userdel`, state deletion, or port reuse. If backup creation fails, remove
+aborts.
 
 For active users, the TUI follows a deactivate-first flow before hard delete.
 Hard delete requires typing the exact username.
@@ -51,8 +53,17 @@ After removal:
 
 - routes are deleted from state;
 - the user row is deleted;
+- backup metadata remains queryable by the original username;
 - the previous gateway port is immediately available for reuse;
 - `delete_user` audit event is emitted.
+
+## Backup / Restore
+
+The user-management screen exposes `b` to create an encrypted backup for the
+selected user and `r` to restore one of that user's backups.
+
+Restore is limited to existing managed users in Phase 3. Restore-to-missing-user
+is deferred.
 
 ## Test Boundary
 

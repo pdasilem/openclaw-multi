@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	backupops "github.com/pdasilem/openclaw-multi/internal/backup"
 	"github.com/pdasilem/openclaw-multi/internal/state"
 	userops "github.com/pdasilem/openclaw-multi/internal/users"
 )
@@ -19,22 +20,32 @@ type userService interface {
 	Remove(ctx context.Context, req userops.RemoveRequest) error
 }
 
+type backupService interface {
+	List(ctx context.Context, username string) ([]state.Backup, error)
+	Create(ctx context.Context, req backupops.CreateRequest) (*state.Backup, error)
+	Restore(ctx context.Context, req backupops.RestoreRequest) error
+}
+
 type userMode int
 
 const (
 	userModeList userMode = iota
 	userModeAdd
 	userModeRemove
+	userModeRestore
 )
 
 type userManagementModel struct {
-	service userService
-	users   []state.User
-	cursor  int
-	mode    userMode
-	input   string
-	status  string
-	errText string
+	service      userService
+	backups      backupService
+	users        []state.User
+	backupList   []state.Backup
+	cursor       int
+	backupCursor int
+	mode         userMode
+	input        string
+	status       string
+	errText      string
 }
 
 type usersLoadedMsg struct {
@@ -47,8 +58,13 @@ type userOpDoneMsg struct {
 	err    error
 }
 
-func newUserManagement(service userService) userManagementModel {
-	return userManagementModel{service: service}
+type backupsLoadedMsg struct {
+	backups []state.Backup
+	err     error
+}
+
+func newUserManagement(service userService, backups backupService) userManagementModel {
+	return userManagementModel{service: service, backups: backups}
 }
 
 func (m userManagementModel) Init() tea.Cmd {
@@ -73,12 +89,22 @@ func (m userManagementModel) Update(msg tea.Msg) (userManagementModel, tea.Cmd) 
 			return m, m.loadCmd()
 		}
 		return m, nil
+	case backupsLoadedMsg:
+		m.backupList = msg.backups
+		m.backupCursor = 0
+		m.errText = errString(msg.err)
+		if msg.err == nil {
+			m.mode = userModeRestore
+		}
+		return m, nil
 	case tea.KeyMsg:
 		switch m.mode {
 		case userModeAdd:
 			return m.updateAdd(msg)
 		case userModeRemove:
 			return m.updateRemove(msg)
+		case userModeRestore:
+			return m.updateRestore(msg)
 		default:
 			return m.updateList(msg)
 		}
@@ -114,6 +140,27 @@ func (m userManagementModel) View() string {
 		b.WriteString("Type username to confirm: " + m.input + "\n\n")
 		b.WriteString("Enter remove   Esc cancel")
 		return b.String()
+	case userModeRestore:
+		user := m.selectedUser()
+		if user == nil {
+			return "No selected user.\n\nEsc cancel"
+		}
+		b.WriteString("Restore backup for " + user.Username + "\n\n")
+		if len(m.backupList) == 0 {
+			b.WriteString("No backups recorded for this user.\n\nEsc cancel")
+			return b.String()
+		}
+		for i, backup := range m.backupList {
+			line := fmt.Sprintf("  %s  %d bytes  %s", backup.ID, backup.SizeBytes, backup.Path)
+			if i == m.backupCursor {
+				b.WriteString(MenuSelectedStyle.Render(line))
+			} else {
+				b.WriteString(MenuItemStyle.Render(line))
+			}
+			b.WriteByte('\n')
+		}
+		b.WriteString("\nEnter restore   Esc cancel")
+		return b.String()
 	}
 
 	if len(m.users) == 0 {
@@ -130,7 +177,7 @@ func (m userManagementModel) View() string {
 		}
 		b.WriteByte('\n')
 	}
-	b.WriteString("\n↑/↓ navigate   a add   p activate/deactivate   x remove   q back")
+	b.WriteString("\n↑/↓ navigate   a add   b backup   r restore   p activate/deactivate   x remove   q back")
 	return b.String()
 }
 
@@ -164,12 +211,55 @@ func (m userManagementModel) updateList(msg tea.KeyMsg) (userManagementModel, te
 			return m, nil
 		}
 		return m, m.toggleCmd(*user)
+	case "b":
+		user := m.selectedUser()
+		if user == nil {
+			return m, nil
+		}
+		return m, m.backupCmd(*user)
+	case "r":
+		user := m.selectedUser()
+		if user == nil {
+			return m, nil
+		}
+		return m, m.loadBackupsCmd(*user)
 	case "x":
 		if m.selectedUser() != nil {
 			m.mode = userModeRemove
 			m.input = ""
 			m.errText = ""
 		}
+	}
+	return m, nil
+}
+
+func (m userManagementModel) updateRestore(msg tea.KeyMsg) (userManagementModel, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.mode = userModeList
+		m.errText = ""
+	case "up", "k":
+		if len(m.backupList) > 0 {
+			if m.backupCursor > 0 {
+				m.backupCursor--
+			} else {
+				m.backupCursor = len(m.backupList) - 1
+			}
+		}
+	case "down", "j":
+		if len(m.backupList) > 0 {
+			if m.backupCursor < len(m.backupList)-1 {
+				m.backupCursor++
+			} else {
+				m.backupCursor = 0
+			}
+		}
+	case "enter":
+		user := m.selectedUser()
+		if user == nil || len(m.backupList) == 0 {
+			return m, nil
+		}
+		return m, m.restoreCmd(*user, m.backupList[m.backupCursor])
 	}
 	return m, nil
 }
@@ -272,6 +362,40 @@ func (m userManagementModel) removeCmd(user state.User) tea.Cmd {
 		}
 		err := m.service.Remove(context.Background(), userops.RemoveRequest{Username: user.Username})
 		return userOpDoneMsg{status: "user removed: " + user.Username, err: err}
+	}
+}
+
+func (m userManagementModel) backupCmd(user state.User) tea.Cmd {
+	return func() tea.Msg {
+		if m.backups == nil {
+			return userOpDoneMsg{err: fmt.Errorf("backup service unavailable")}
+		}
+		backup, err := m.backups.Create(context.Background(), backupops.CreateRequest{Username: user.Username})
+		status := "backup created"
+		if backup != nil {
+			status = "backup created: " + backup.ID
+		}
+		return userOpDoneMsg{status: status, err: err}
+	}
+}
+
+func (m userManagementModel) loadBackupsCmd(user state.User) tea.Cmd {
+	return func() tea.Msg {
+		if m.backups == nil {
+			return backupsLoadedMsg{err: fmt.Errorf("backup service unavailable")}
+		}
+		backups, err := m.backups.List(context.Background(), user.Username)
+		return backupsLoadedMsg{backups: backups, err: err}
+	}
+}
+
+func (m userManagementModel) restoreCmd(user state.User, backup state.Backup) tea.Cmd {
+	return func() tea.Msg {
+		if m.backups == nil {
+			return userOpDoneMsg{err: fmt.Errorf("backup service unavailable")}
+		}
+		err := m.backups.Restore(context.Background(), backupops.RestoreRequest{Username: user.Username, BackupID: backup.ID})
+		return userOpDoneMsg{status: "backup restored: " + backup.ID, err: err}
 	}
 }
 

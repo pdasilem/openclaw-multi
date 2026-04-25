@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily OpenClaw encrypted backup for %i
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target

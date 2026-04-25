@@ -24,16 +24,22 @@ type Auditor interface {
 	Emit(e audit.Event) error
 }
 
+// BeforeRemoveHook runs mandatory pre-remove work such as backup creation.
+type BeforeRemoveHook interface {
+	BeforeRemove(ctx context.Context, username string) error
+}
+
 // Manager coordinates lifecycle operations for managed OpenClaw users.
 type Manager struct {
-	Store       *state.Store
-	Exec        shell.Executor
-	FS          shell.FS
-	Config      *config.OverlayConfig
-	Routes      RoutePublisher
-	Logger      Auditor
-	Actor       string
-	TemplateDir string
+	Store        *state.Store
+	Exec         shell.Executor
+	FS           shell.FS
+	Config       *config.OverlayConfig
+	Routes       RoutePublisher
+	BeforeRemove BeforeRemoveHook
+	Logger       Auditor
+	Actor        string
+	TemplateDir  string
 }
 
 // AddRequest describes a user bootstrap operation.
@@ -274,6 +280,12 @@ func (m *Manager) Remove(ctx context.Context, req RemoveRequest) error {
 	}
 	if user.Status == state.UserStatusActive {
 		if err := m.Deactivate(ctx, username); err != nil {
+			m.emit(audit.ActionDeleteUser, username, audit.ResultError, err, start)
+			return err
+		}
+	}
+	if m.BeforeRemove != nil {
+		if err := m.BeforeRemove.BeforeRemove(ctx, username); err != nil {
 			m.emit(audit.ActionDeleteUser, username, audit.ResultError, err, start)
 			return err
 		}

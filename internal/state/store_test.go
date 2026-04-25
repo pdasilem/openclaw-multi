@@ -309,3 +309,72 @@ func TestRouteCRUDAndCascade(t *testing.T) {
 		t.Fatalf("expected cascade route delete, got %+v", routes)
 	}
 }
+
+func TestBackupCRUDAndSurvivesUserDelete(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	if err := s.UpsertUser(ctx, User{Username: "alice", Port: 18789, Status: UserStatusActive}); err != nil {
+		t.Fatalf("UpsertUser: %v", err)
+	}
+
+	first := Backup{
+		ID:              "alice-1",
+		Username:        "alice",
+		TS:              time.Date(2026, 4, 25, 1, 0, 0, 0, time.UTC),
+		SizeBytes:       10,
+		SHA256:          "aaa",
+		OpenClawVersion: "1.0.0",
+		Encrypted:       true,
+		Path:            "/var/lib/openclaw-multi/backups/alice/1.tar.gz.enc",
+	}
+	second := Backup{
+		ID:        "alice-2",
+		Username:  "alice",
+		TS:        time.Date(2026, 4, 25, 2, 0, 0, 0, time.UTC),
+		SizeBytes: 20,
+		SHA256:    "bbb",
+		Encrypted: true,
+		Path:      "/var/lib/openclaw-multi/backups/alice/2.tar.gz.enc",
+	}
+	if err := s.UpsertBackup(ctx, first); err != nil {
+		t.Fatalf("UpsertBackup first: %v", err)
+	}
+	if err := s.UpsertBackup(ctx, second); err != nil {
+		t.Fatalf("UpsertBackup second: %v", err)
+	}
+
+	backups, err := s.ListBackupsByUser(ctx, "alice")
+	if err != nil {
+		t.Fatalf("ListBackupsByUser: %v", err)
+	}
+	if len(backups) != 2 || backups[0].ID != "alice-2" || backups[1].ID != "alice-1" {
+		t.Fatalf("unexpected backup order: %+v", backups)
+	}
+
+	got, err := s.GetBackup(ctx, "alice-1")
+	if err != nil {
+		t.Fatalf("GetBackup: %v", err)
+	}
+	if got.SHA256 != "aaa" || !got.Encrypted {
+		t.Fatalf("unexpected backup: %+v", got)
+	}
+
+	if err := s.DeleteUser(ctx, "alice"); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+	backups, err = s.ListBackupsByUser(ctx, "alice")
+	if err != nil {
+		t.Fatalf("ListBackupsByUser after user delete: %v", err)
+	}
+	if len(backups) != 2 {
+		t.Fatalf("expected backups to survive user delete, got %+v", backups)
+	}
+
+	if err := s.DeleteBackup(ctx, "alice-1"); err != nil {
+		t.Fatalf("DeleteBackup: %v", err)
+	}
+	_, err = s.GetBackup(ctx, "alice-1")
+	if !errors.Is(err, ErrNoBackup) {
+		t.Fatalf("expected ErrNoBackup, got %v", err)
+	}
+}

@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## v0.3.0 - 2026-04-25
+
+### Added
+- `internal/backup`: encrypted backup creation, restore for existing managed
+  users, auto-backup timer installation, and backup audit events.
+- Backup metadata CRUD in `internal/state`, including `ErrNoBackup`.
+- TUI user-management backup and restore actions (`b` and `r`).
+- Non-interactive `openclaw-multi backup <username>` command for timer-driven
+  backups.
+- `templates/openclaw-backup@.service.tmpl` and
+  `templates/openclaw-backup@.timer.tmpl`.
+- `docs/backups.md` and `docs/phases/phase-3-retro.md`.
+
+### Changed
+- Backup metadata now survives user deletion.
+- User removal is backup-first and aborts before destructive steps if backup
+  creation fails.
+- `shell.FS` now includes `Remove` for deterministic cleanup of partial backup
+  artifacts.
+
 ## v0.2.0 - 2026-04-25
 
 ### Added
