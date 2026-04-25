@@ -186,3 +186,126 @@ func TestSetMetaOverwrites(t *testing.T) {
 		t.Errorf("expected v2, got %q", val)
 	}
 }
+
+func TestUserCRUD(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+
+	u := User{
+		Username:   "alice",
+		UID:        1001,
+		Port:       18789,
+		Status:     UserStatusActive,
+		Linger:     true,
+		GatewayURL: "https://gateway-alice.openclaw.example.com",
+	}
+	if err := s.UpsertUser(ctx, u); err != nil {
+		t.Fatalf("UpsertUser: %v", err)
+	}
+
+	got, err := s.GetUser(ctx, "alice")
+	if err != nil {
+		t.Fatalf("GetUser: %v", err)
+	}
+	if got.Username != u.Username || got.Port != u.Port || got.Status != UserStatusActive || !got.Linger {
+		t.Fatalf("unexpected user: %+v", got)
+	}
+
+	exists, err := s.UserExists(ctx, "alice")
+	if err != nil {
+		t.Fatalf("UserExists: %v", err)
+	}
+	if !exists {
+		t.Fatal("expected alice to exist")
+	}
+
+	if err := s.SetUserStatus(ctx, "alice", UserStatusPaused); err != nil {
+		t.Fatalf("SetUserStatus: %v", err)
+	}
+	got, err = s.GetUser(ctx, "alice")
+	if err != nil {
+		t.Fatalf("GetUser after status: %v", err)
+	}
+	if got.Status != UserStatusPaused {
+		t.Fatalf("status: got %q", got.Status)
+	}
+
+	if err := s.DeleteUser(ctx, "alice"); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+	_, err = s.GetUser(ctx, "alice")
+	if !errors.Is(err, ErrNoUser) {
+		t.Fatalf("expected ErrNoUser after delete, got %v", err)
+	}
+}
+
+func TestListUsersSorted(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	for _, u := range []User{
+		{Username: "carol", Port: 18829, Status: UserStatusActive},
+		{Username: "alice", Port: 18789, Status: UserStatusActive},
+		{Username: "bob", Port: 18809, Status: UserStatusPaused},
+	} {
+		if err := s.UpsertUser(ctx, u); err != nil {
+			t.Fatalf("UpsertUser %s: %v", u.Username, err)
+		}
+	}
+	users, err := s.ListUsers(ctx)
+	if err != nil {
+		t.Fatalf("ListUsers: %v", err)
+	}
+	if got := []string{users[0].Username, users[1].Username, users[2].Username}; got[0] != "alice" || got[1] != "bob" || got[2] != "carol" {
+		t.Fatalf("unexpected order: %v", got)
+	}
+}
+
+func TestRouteCRUDAndCascade(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	if err := s.UpsertUser(ctx, User{Username: "alice", Port: 18789, Status: UserStatusActive}); err != nil {
+		t.Fatalf("UpsertUser: %v", err)
+	}
+
+	route := Route{
+		ID:        "gateway:alice",
+		Username:  "alice",
+		Kind:      RouteKindGateway,
+		LocalPort: 18789,
+		Hostname:  "gateway-alice.openclaw.example.com",
+		Enabled:   true,
+	}
+	if err := s.UpsertRoute(ctx, route); err != nil {
+		t.Fatalf("UpsertRoute: %v", err)
+	}
+
+	routes, err := s.ListRoutesByUser(ctx, "alice")
+	if err != nil {
+		t.Fatalf("ListRoutesByUser: %v", err)
+	}
+	if len(routes) != 1 || routes[0].Hostname != route.Hostname || !routes[0].Enabled {
+		t.Fatalf("unexpected routes: %+v", routes)
+	}
+
+	if err := s.SetRoutesEnabled(ctx, "alice", false); err != nil {
+		t.Fatalf("SetRoutesEnabled: %v", err)
+	}
+	routes, err = s.ListRoutesByUser(ctx, "alice")
+	if err != nil {
+		t.Fatalf("ListRoutesByUser after disable: %v", err)
+	}
+	if routes[0].Enabled {
+		t.Fatal("expected route disabled")
+	}
+
+	if err := s.DeleteUser(ctx, "alice"); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+	routes, err = s.ListRoutesByUser(ctx, "alice")
+	if err != nil {
+		t.Fatalf("ListRoutesByUser after cascade: %v", err)
+	}
+	if len(routes) != 0 {
+		t.Fatalf("expected cascade route delete, got %+v", routes)
+	}
+}

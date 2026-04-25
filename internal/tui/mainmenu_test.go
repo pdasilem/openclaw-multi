@@ -3,21 +3,21 @@ package tui
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestMenuNavigation(t *testing.T) {
 	m := newMainMenu()
 
 	// Move down.
-	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m2, _ := m.Update(keyText("j"))
 	if m2.cursor != 1 {
 		t.Errorf("expected cursor 1 after down, got %d", m2.cursor)
 	}
 
 	// Move up from start wraps to end.
 	m3 := newMainMenu()
-	m4, _ := m3.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	m4, _ := m3.Update(keyText("k"))
 	if m4.cursor != len(menuItems)-1 {
 		t.Errorf("expected wrap to %d, got %d", len(menuItems)-1, m4.cursor)
 	}
@@ -25,7 +25,7 @@ func TestMenuNavigation(t *testing.T) {
 
 func TestMenuEnterDispatchesAction(t *testing.T) {
 	m := newMainMenu()
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := m.Update(keyPress(tea.Key{Code: tea.KeyEnter}))
 	if cmd == nil {
 		t.Fatal("expected cmd after Enter")
 	}
@@ -43,7 +43,7 @@ func TestMenuRoutesToPlaceholder(t *testing.T) {
 	for _, item := range menuItems {
 		m := newMainMenu()
 		m.cursor = item.id - 1
-		_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		_, cmd := m.Update(keyPress(tea.Key{Code: tea.KeyEnter}))
 		if cmd == nil {
 			t.Fatalf("item %d: expected cmd", item.id)
 		}
@@ -61,7 +61,7 @@ func TestMenuRoutesToPlaceholder(t *testing.T) {
 func TestMenuWrapsAtBottom(t *testing.T) {
 	m := newMainMenu()
 	m.cursor = len(menuItems) - 1
-	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m2, _ := m.Update(keyText("j"))
 	if m2.cursor != 0 {
 		t.Errorf("expected wrap to 0, got %d", m2.cursor)
 	}

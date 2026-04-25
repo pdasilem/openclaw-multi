@@ -59,7 +59,8 @@ prior_retros: ["phase-0-retro.md"]
 ## 3. Inputs
 
 - Code state at start: `v0.0.0` / `phase-0` skeleton.
-- Go version: **1.26.0** (verified via Context7 before phase start).
+- Go version: **1.26.2** current repository baseline after the dependency
+  refresh to Bubble Tea v2 / Lip Gloss v2 / modernc.org/sqlite v1.49.1.
 - Master plan: §2.5 (idempotency), §5 (dirs), §6.2 (wizard steps), §9 Phase 1.
 - Prior retros: `phase-0-retro.md`.
 - Constraints from DEV_PROCESS §0: no live installs, no VPS, tests only.

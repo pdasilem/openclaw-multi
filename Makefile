@@ -48,7 +48,7 @@ lint: ## Run golangci-lint
 schema-check: ## Validate SQL schema and JSON schemas
 	@echo "  checking schemas/state.sql..."
 	@sqlite3 :memory: < schemas/state.sql && echo "  OK: state.sql"
-	@for f in schemas/*.schema.json; do \
+	@for f in $$(find schemas -maxdepth 1 -name '*.schema.json' -type f); do \
 		echo "  checking $$f..."; \
 		jq empty $$f && echo "  OK: $$f"; \
 	done

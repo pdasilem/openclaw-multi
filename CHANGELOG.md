@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## v0.2.0 - 2026-04-25
+
+### Added
+- `internal/state`: managed user and route models plus CRUD/status helpers for
+  `users` and `routes`.
+- `internal/users`: user lifecycle manager for add, activate, deactivate, and
+  remove operations using injectable `shell.Executor`, `shell.FS`, state store,
+  route publisher, and audit logger.
+- Deterministic gateway port allocation from `port_range_start` with
+  `port_range_step`; deleted users immediately free their gateway port for
+  reuse.
+- State-backed `RoutePublisher` for Phase 2 gateway routes without live
+  cloudflared mutation.
+- TUI menu item 3 now opens a user-management screen with list, add,
+  activate/deactivate, and remove flows.
+- `templates/openclaw-overlay-watcher.service.tmpl` for per-user watcher
+  systemd units.
+- `docs/users.md` and `docs/phases/phase-2-retro.md`.
+
+### Changed
+- `Add User` now requires configured `domain` and `subdomain` before any state,
+  route, or command mutation.
+- Gateway tokens are generated automatically in Phase 2; manual token entry is
+  out of scope.
+- Removing an active user follows a deactivate-first flow before hard delete.
+
 ## v0.1.0 - 2026-04-25
 
 ### Added
@@ -20,6 +46,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `templates/`: sysctl, fstab, profile.d, cloudflared, systemd unit templates.
 - `docs/install.md`: installation guide.
 - `state.SetMeta` / `GetMeta` for key-value overlay state.
+
+### Changed
+- Refreshed Go dependencies to current stable module paths:
+  `charm.land/bubbletea/v2 v2.0.6`, `charm.land/lipgloss/v2 v2.0.3`,
+  and `modernc.org/sqlite v1.49.1`.
+- Updated TUI code for Bubble Tea v2: `View()` now returns `tea.View`,
+  alt-screen is configured on the returned view, and tests use the v2 key
+  event API.
 
 ## v0.0.0 - 2026-04-25
 

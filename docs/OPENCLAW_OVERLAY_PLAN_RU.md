@@ -297,8 +297,15 @@ Plugin пересчитывает конфиг (hot-reload в OpenClaw)
 
 ### 4.1. Язык TUI
 
-**Рекомендация: Go + [Bubble Tea](https://github.com/charmbracelet/bubbletea) +
-[Lip Gloss](https://github.com/charmbracelet/lipgloss).**
+**Рекомендация: Go + [Bubble Tea v2](https://github.com/charmbracelet/bubbletea) +
+[Lip Gloss v2](https://github.com/charmbracelet/lipgloss).**
+
+Текущий baseline репозитория: `go 1.26.2`,
+`charm.land/bubbletea/v2 v2.0.6`, `charm.land/lipgloss/v2 v2.0.3`,
+`modernc.org/sqlite v1.49.1`, `gopkg.in/yaml.v3 v3.0.1`.
+`go.sum` коммитится вместе с `go.mod`: он фиксирует checksums модулей и их
+`go.mod`, чтобы сборки были воспроизводимыми и Go мог обнаружить подмену
+зависимости.
 
 Обоснование:
 

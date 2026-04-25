@@ -3,8 +3,8 @@
 ## What we built
 
 Go monorepo skeleton with three binary stubs (`openclaw-multi`, `openclaw-overlay-api`,
-`openclaw-overlay-watcher`). Bubble Tea TUI with a working main menu (10 items),
-lipgloss styles, status bar, placeholder screens, and a first-run admin setup flow.
+`openclaw-overlay-watcher`). Bubble Tea v2 TUI with a working main menu (10 items),
+Lip Gloss v2 styles, status bar, placeholder screens, and a first-run admin setup flow.
 SQLite state store with idempotent migrations. JSONL audit log writer. Admin
 identification and verification logic. CI pipeline (lint + test + build amd64/arm64 +
 schema-check + shellcheck). Docker test image and Phase 0 smoke test script.
@@ -14,9 +14,9 @@ schema-check + shellcheck). Docker test image and Phase 0 smoke test script.
 - **golangci-lint**: plan specified v1.64.8; actual is v2.11.4 (latest). v2 has a
   breaking config format change (`gosimple` removed, formatters split out). Config
   updated accordingly.
-- **Go version**: plan specified `go 1.22`; actual is `go 1.25.0` because
-  `bubbletea v1.3.10` and `modernc.org/libc v1.72.0` require it. CI updated to
-  `go-version: "1.25.x"`.
+- **Go version**: plan specified `go 1.22`; current baseline is `go 1.26.2`
+  after the dependency refresh to Bubble Tea v2 / Lip Gloss v2 and
+  `modernc.org/sqlite v1.49.1`.
 - **`state.ErrNoAdmin`**: `GetAdmin` returns a sentinel error instead of `(nil, nil)`
   to satisfy `nilnil` linter rule. Callers updated.
 - **`openclaw/` upstream mirror**: excluded from git tracking (added to `.gitignore`);
@@ -39,5 +39,5 @@ schema-check + shellcheck). Docker test image and Phase 0 smoke test script.
 
 ## Master plan updates suggested
 
-- Note that `go 1.25+` is required due to current bubbletea/modernc.org deps.
+- Note that `go 1.26.2+` is required by the current repository baseline.
 - golangci-lint v2 config format applies to all phases.

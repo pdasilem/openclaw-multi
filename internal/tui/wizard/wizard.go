@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // Step is implemented by each wizard step.
@@ -159,7 +159,7 @@ var (
 )
 
 // View renders the wizard.
-func (m Model) View() string {
+func (m Model) View() tea.View {
 	var b strings.Builder
 	total := len(m.steps)
 
@@ -183,5 +183,5 @@ func (m Model) View() string {
 		b.WriteString(warnStyle.Render("  [R]etry  [S]kip  [A]bort") + "\n")
 	}
 
-	return b.String()
+	return tea.NewView(b.String())
 }

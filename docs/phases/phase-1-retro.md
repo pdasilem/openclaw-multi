@@ -7,7 +7,7 @@ Seven new Go packages: `shell` (Executor + FS interfaces + mocks),
 `preflight` (distro/disk/RAM/port checks), `config` (YAML overlay config +
 envsubst renderer), `hardening` (sysctl/hidepid/profile.d — idempotent),
 `deps` (EnsureNode/Tailscale/Cloudflared/UFW — all mock-tested), and
-`tui/wizard` (generic Bubble Tea step-wizard + 10-step fresh-install wizard).
+`tui/wizard` (generic Bubble Tea v2 step-wizard + 10-step fresh-install wizard).
 TUI menu item 1 now launches the real wizard instead of a placeholder.
 All six template files written. Coverage ≥ 80% on every new package.
 
@@ -21,13 +21,15 @@ All six template files written. Coverage ≥ 80% on every new package.
   `(nil, nil)`. Required updates to `tui/app.go` and `admin/resolver.go`.
 - **Module path corrected**: `github.com/SergeiM/openclaw-multi` →
   `github.com/pdasilem/openclaw-multi` — fixed across all files in one shot.
-- **Go 1.26.0** (confirmed via Context7): bubbletea v1.3.10 + modernc.org
-  deps require it. CI updated accordingly.
+- **Dependency refresh after Phase 1**: baseline is now `go 1.26.2`,
+  `charm.land/bubbletea/v2 v2.0.6`, `charm.land/lipgloss/v2 v2.0.3`,
+  and `modernc.org/sqlite v1.49.1`.
 - **golangci-lint v2 (2.11.4)**: `revive.exported` rule disabled (too noisy
   for Phase 1 internal packages); `gosimple` removed (merged into
   `staticcheck`); formatters in separate `formatters:` section.
-- **`tui/wizard.Model.Update`** must return `(tea.Model, tea.Cmd)`, not
-  `(Model, tea.Cmd)` — standard Bubble Tea interface requirement.
+- **Bubble Tea v2 interface changes**: `tui/wizard.Model.Update` still returns
+  `(tea.Model, tea.Cmd)`, while `View()` now returns `tea.View`. Tests should
+  create key events with `tea.KeyPressMsg`, not the v1 `tea.KeyMsg` struct.
 - **`hardening.emit`** simplified to not take `action`/`result` params
   (always `ActionShellExec` / `ResultOk`) after `unparam` lint.
 - **T19 (Docker idempotency test)** not implemented — deferred per
@@ -43,7 +45,8 @@ All six template files written. Coverage ≥ 80% on every new package.
 - Use `context.Background()` in step constructors, not pass-through ctx, to
   avoid `unparam` warnings when ctx is always the same.
 - `tea.Model.Update` signature is non-negotiable — always returns
-  `(tea.Model, tea.Cmd)`. Use type-assertion helper in tests.
+  `(tea.Model, tea.Cmd)`. In Bubble Tea v2, `View()` returns `tea.View`; use
+  `.Content` in string assertions and helper constructors for key presses.
 
 ## Open issues carried forward
 
@@ -56,7 +59,10 @@ All six template files written. Coverage ≥ 80% on every new package.
 
 ## Master plan updates suggested
 
-- `go 1.26.0` is now the minimum required Go version (update §4.1).
+- `go 1.26.2` is now the minimum repository baseline (update §4.1).
+- Keep TUI docs and examples on `charm.land/bubbletea/v2` and
+  `charm.land/lipgloss/v2`; do not reintroduce old `github.com/charmbracelet/*`
+  import paths.
 - golangci-lint v2 config format applies to all phases (update §2).
 - Test-only constraint (no live VPS execution until full MVP) — add as
   explicit process rule (already added to DEV_PROCESS §0).

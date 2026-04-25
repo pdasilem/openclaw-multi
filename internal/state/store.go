@@ -15,6 +15,12 @@ const defaultDBPath = "/var/lib/openclaw-multi/state.db"
 // ErrNoAdmin is returned by GetAdmin when no admin has been configured yet.
 var ErrNoAdmin = fmt.Errorf("no admin configured")
 
+// ErrNoUser is returned when a managed user does not exist.
+var ErrNoUser = fmt.Errorf("no user configured")
+
+// ErrNoRoute is returned when a route does not exist.
+var ErrNoRoute = fmt.Errorf("no route configured")
+
 // Store is the SQLite-backed state store for the overlay.
 type Store struct {
 	db   *sql.DB
@@ -110,4 +116,274 @@ func (s *Store) SetAdmin(ctx context.Context, a Admin) error {
 		return fmt.Errorf("commit admin: %w", err)
 	}
 	return nil
+}
+
+// ListUsers returns all managed users sorted by username.
+func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT username, COALESCE(uid, 0), COALESCE(port, 0), status, linger,
+		       COALESCE(gateway_url, ''), created_at, updated_at
+		FROM users
+		ORDER BY username`)
+	if err != nil {
+		return nil, fmt.Errorf("list users: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var users []User
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list users rows: %w", err)
+	}
+	return users, nil
+}
+
+// GetUser returns a managed user by username.
+func (s *Store) GetUser(ctx context.Context, username string) (*User, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT username, COALESCE(uid, 0), COALESCE(port, 0), status, linger,
+		       COALESCE(gateway_url, ''), created_at, updated_at
+		FROM users
+		WHERE username = ?`, username)
+	u, err := scanUser(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNoUser
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get user %q: %w", username, err)
+	}
+	return &u, nil
+}
+
+// UserExists returns true when username is present in state.
+func (s *Store) UserExists(ctx context.Context, username string) (bool, error) {
+	var exists int
+	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM users WHERE username = ?`, username).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("user exists %q: %w", username, err)
+	}
+	return true, nil
+}
+
+// UpsertUser inserts or updates a managed user.
+func (s *Store) UpsertUser(ctx context.Context, u User) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	createdAt := formatOrNow(u.CreatedAt, now)
+	updatedAt := formatOrNow(u.UpdatedAt, now)
+	if u.Status == "" {
+		u.Status = UserStatusActive
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO users(username, uid, port, status, linger, gateway_url, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(username) DO UPDATE SET
+			uid = excluded.uid,
+			port = excluded.port,
+			status = excluded.status,
+			linger = excluded.linger,
+			gateway_url = excluded.gateway_url,
+			updated_at = ?`,
+		u.Username, nullableInt(u.UID), nullableInt(u.Port), string(u.Status), boolInt(u.Linger),
+		nullableString(u.GatewayURL), createdAt, updatedAt, now)
+	if err != nil {
+		return fmt.Errorf("upsert user %q: %w", u.Username, err)
+	}
+	return nil
+}
+
+// SetUserStatus updates a managed user's status.
+func (s *Store) SetUserStatus(ctx context.Context, username string, status UserStatus) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE users SET status = ?, updated_at = ? WHERE username = ?`,
+		string(status), time.Now().UTC().Format(time.RFC3339), username)
+	if err != nil {
+		return fmt.Errorf("set user status %q: %w", username, err)
+	}
+	return requireAffected(res, ErrNoUser)
+}
+
+// DeleteUser removes a managed user. Related routes/backups/ports cascade.
+func (s *Store) DeleteUser(ctx context.Context, username string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE username = ?`, username)
+	if err != nil {
+		return fmt.Errorf("delete user %q: %w", username, err)
+	}
+	return requireAffected(res, ErrNoUser)
+}
+
+// ListRoutesByUser returns routes for username sorted by kind, plugin_id, hostname.
+func (s *Store) ListRoutesByUser(ctx context.Context, username string) ([]Route, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, username, kind, COALESCE(plugin_id, ''), local_port, hostname,
+		       enabled, created_at, COALESCE(last_seen_cached_at, ''), COALESCE(last_seen_value, '')
+		FROM routes
+		WHERE username = ?
+		ORDER BY kind, plugin_id, hostname`, username)
+	if err != nil {
+		return nil, fmt.Errorf("list routes for %q: %w", username, err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var routes []Route
+	for rows.Next() {
+		r, err := scanRoute(rows)
+		if err != nil {
+			return nil, err
+		}
+		routes = append(routes, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list routes rows for %q: %w", username, err)
+	}
+	return routes, nil
+}
+
+// UpsertRoute inserts or updates a route.
+func (s *Store) UpsertRoute(ctx context.Context, r Route) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	createdAt := formatOrNow(r.CreatedAt, now)
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO routes(id, username, kind, plugin_id, local_port, hostname, enabled, created_at,
+		                   last_seen_cached_at, last_seen_value)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			username = excluded.username,
+			kind = excluded.kind,
+			plugin_id = excluded.plugin_id,
+			local_port = excluded.local_port,
+			hostname = excluded.hostname,
+			enabled = excluded.enabled,
+			last_seen_cached_at = excluded.last_seen_cached_at,
+			last_seen_value = excluded.last_seen_value`,
+		r.ID, r.Username, string(r.Kind), nullableString(r.PluginID), r.LocalPort, r.Hostname,
+		boolInt(r.Enabled), createdAt, nullableTime(r.LastSeenCachedAt), nullableTime(r.LastSeenValue))
+	if err != nil {
+		return fmt.Errorf("upsert route %q for %q: %w", r.ID, r.Username, err)
+	}
+	return nil
+}
+
+// DeleteRoute removes a route by ID.
+func (s *Store) DeleteRoute(ctx context.Context, id string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM routes WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete route %q: %w", id, err)
+	}
+	return requireAffected(res, ErrNoRoute)
+}
+
+// DeleteRoutesByUser removes all routes for username.
+func (s *Store) DeleteRoutesByUser(ctx context.Context, username string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM routes WHERE username = ?`, username)
+	if err != nil {
+		return fmt.Errorf("delete routes for %q: %w", username, err)
+	}
+	return nil
+}
+
+// SetRoutesEnabled updates enabled state for all routes owned by username.
+func (s *Store) SetRoutesEnabled(ctx context.Context, username string, enabled bool) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE routes SET enabled = ? WHERE username = ?`, boolInt(enabled), username)
+	if err != nil {
+		return fmt.Errorf("set routes enabled for %q: %w", username, err)
+	}
+	return nil
+}
+
+type scanner interface {
+	Scan(dest ...any) error
+}
+
+func scanUser(row scanner) (User, error) {
+	var u User
+	var createdAt, updatedAt string
+	var linger int
+	if err := row.Scan(&u.Username, &u.UID, &u.Port, &u.Status, &linger, &u.GatewayURL, &createdAt, &updatedAt); err != nil {
+		return User{}, err
+	}
+	u.Linger = linger == 1
+	u.CreatedAt = parseDBTime(createdAt)
+	u.UpdatedAt = parseDBTime(updatedAt)
+	return u, nil
+}
+
+func scanRoute(row scanner) (Route, error) {
+	var r Route
+	var createdAt, cachedAt, seenAt string
+	var enabled int
+	if err := row.Scan(&r.ID, &r.Username, &r.Kind, &r.PluginID, &r.LocalPort, &r.Hostname,
+		&enabled, &createdAt, &cachedAt, &seenAt); err != nil {
+		return Route{}, err
+	}
+	r.Enabled = enabled == 1
+	r.CreatedAt = parseDBTime(createdAt)
+	r.LastSeenCachedAt = parseDBTime(cachedAt)
+	r.LastSeenValue = parseDBTime(seenAt)
+	return r, nil
+}
+
+func requireAffected(res sql.Result, notFound error) error {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected: %w", err)
+	}
+	if n == 0 {
+		return notFound
+	}
+	return nil
+}
+
+func parseDBTime(value string) time.Time {
+	if value == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+func formatOrNow(t time.Time, fallback string) string {
+	if t.IsZero() {
+		return fallback
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+func nullableInt(value int) any {
+	if value == 0 {
+		return nil
+	}
+	return value
+}
+
+func nullableString(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
+func nullableTime(value time.Time) any {
+	if value.IsZero() {
+		return nil
+	}
+	return value.UTC().Format(time.RFC3339)
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }

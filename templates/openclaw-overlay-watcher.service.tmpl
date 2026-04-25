@@ -1,0 +1,14 @@
+[Unit]
+Description=OpenClaw overlay watcher for ${USERNAME}
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=OPENCLAW_OVERLAY_API=${OVERLAY_API_ENDPOINT}
+ExecStart=/usr/local/bin/openclaw-overlay-watcher
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target

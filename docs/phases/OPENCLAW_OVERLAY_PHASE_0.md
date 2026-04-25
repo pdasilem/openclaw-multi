@@ -101,11 +101,10 @@ Key dependencies (pinned in `go.mod`):
 
 | Module                               | Version       | Why                                          |
 | ------------------------------------ | ------------- | -------------------------------------------- |
-| `github.com/charmbracelet/bubbletea` | latest stable | TUI runtime                                  |
-| `github.com/charmbracelet/lipgloss`  | latest stable | TUI styling                                  |
-| `github.com/charmbracelet/bubbles`   | latest stable | reusable TUI components (list, viewport)     |
-| `modernc.org/sqlite`                 | latest stable | pure-Go SQLite (no CGo, simpler cross-build) |
-| `gopkg.in/yaml.v3`                   | latest stable | YAML config parsing                          |
+| `charm.land/bubbletea/v2`            | `v2.0.6`      | TUI runtime                                  |
+| `charm.land/lipgloss/v2`             | `v2.0.3`      | TUI styling                                  |
+| `modernc.org/sqlite`                 | `v1.49.1`     | pure-Go SQLite (no CGo, simpler cross-build) |
+| `gopkg.in/yaml.v3`                   | `v3.0.1`      | YAML config parsing                          |
 
 No use of `cgo` anywhere in Phase 0 — keeps cross-compilation trivial.
 
@@ -179,8 +178,8 @@ master plan §5.
 
 **Acceptance criteria.**
 
-- [ ] `go.mod` present, module path `github.com/<org>/openclaw-multi`,
-      Go directive `go 1.22` or newer.
+- [ ] `go.mod` present, module path `github.com/pdasilem/openclaw-multi`,
+      Go directive `go 1.26.2` or newer.
 - [ ] Directories created (each with a `.gitkeep` file if empty):
       `cmd/openclaw-multi/`, `cmd/openclaw-overlay-api/`,
       `cmd/openclaw-overlay-watcher/`, `internal/tui/`,
@@ -323,9 +322,9 @@ will fill in the actual TUI.
 
 **Acceptance criteria.**
 
-- [ ] `go.mod` has the three dependencies pinned to specific versions
+- [ ] `go.mod` has direct runtime dependencies pinned to specific versions
       (no `latest`).
-- [ ] `go.sum` updated.
+- [ ] `go.sum` updated and committed for module checksum verification.
 - [ ] `go mod tidy` produces no diff.
 
 **Test plan.** `go mod verify` exits 0.
@@ -615,7 +614,7 @@ admin) → expect exit 3. Manual: `make dev`, see first-run setup.
 **Acceptance criteria.**
 
 - [ ] Triggers: `push` to `main`, `pull_request` to `main`.
-- [ ] Jobs (matrix where appropriate): - `lint` (`golangci-lint-action`) - `test` (Go matrix `go-version: [1.22, 1.23]` if both
+- [ ] Jobs (matrix where appropriate): - `lint` (`golangci-lint-action`) - `test` (Go matrix `go-version: [1.26.x]` if
       applicable; else single) - `build` (matrix `goarch: [amd64, arm64]`) - `schema-check` - `shellcheck` for `scripts/`
 - [ ] All jobs use `ubuntu-22.04` runner.
 - [ ] Coverage uploaded as artifact (`coverage.out`).
@@ -789,7 +788,7 @@ Defined in T25 and T26. Single canonical entrypoint: `make test-phase-0`.
 
 | Risk                                                                               | Mitigation                                                                                                                               |
 | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Bubble Tea API changes between when this doc was written and when phase 0 starts   | Pin exact versions in T09; revisit if breaking                                                                                           |
+| Bubble Tea API changes between when this doc was written and when phase 0 starts   | Baseline is Bubble Tea v2; `View()` returns `tea.View`, and key tests use `tea.KeyPressMsg`. Pin exact versions in T09; revisit if breaking |
 | `modernc.org/sqlite` performance edge cases                                        | Phase 0 uses < 100 rows, performance is irrelevant; revisit in Phase 5 if state.db grows                                                 |
 | Cross-compilation on macOS/Apple Silicon dev machines                              | Use `GOOS=linux GOARCH=amd64 go build`; CI is the source of truth, dev machines are best-effort                                          |
 | TUI tests are flaky (TUI testing is hard)                                          | Use `vhs` (Charm) or simple `expect` scripts for E2E; favour pure unit tests for `Update()` logic                                        |

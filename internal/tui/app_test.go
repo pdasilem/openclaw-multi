@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestModelInitReturnsNilCmd(t *testing.T) {
@@ -16,7 +16,7 @@ func TestModelInitReturnsNilCmd(t *testing.T) {
 
 func TestModelUpdateQuit(t *testing.T) {
 	m := newModel(nil, nil, "testhost", "")
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	_, cmd := m.Update(keyPress(tea.Key{Code: 'c', Mod: tea.ModCtrl}))
 	if cmd == nil {
 		t.Fatal("expected quit cmd")
 	}
@@ -25,7 +25,7 @@ func TestModelUpdateQuit(t *testing.T) {
 func TestModelUpdateQKeyOnMainMenu(t *testing.T) {
 	m := newModel(nil, nil, "testhost", "")
 	m.screen = screenMainMenu
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	_, cmd := m.Update(keyText("q"))
 	if cmd == nil {
 		t.Error("expected quit cmd when pressing q on main menu")
 	}
@@ -43,10 +43,24 @@ func TestModelUpdateWindowSize(t *testing.T) {
 func TestModelMenuActionRoutesToPlaceholder(t *testing.T) {
 	m := newModel(nil, nil, "testhost", "")
 	m.screen = screenMainMenu
-	updated, _ := m.Update(MenuActionMsg{ItemID: 3})
+	updated, _ := m.Update(MenuActionMsg{ItemID: 2})
 	um := updated.(Model)
 	if um.screen != screenPlaceholder {
 		t.Errorf("expected screenPlaceholder, got %d", um.screen)
+	}
+}
+
+func TestModelMenuActionRoutesToUsers(t *testing.T) {
+	m := newModel(nil, nil, "testhost", "")
+	m.userService = &fakeUserService{}
+	m.screen = screenMainMenu
+	updated, cmd := m.Update(MenuActionMsg{ItemID: 3})
+	um := updated.(Model)
+	if um.screen != screenUsers {
+		t.Errorf("expected screenUsers, got %d", um.screen)
+	}
+	if cmd == nil {
+		t.Fatal("expected user screen init command")
 	}
 }
 
@@ -63,7 +77,7 @@ func TestModelBackReturnsToMainMenu(t *testing.T) {
 func TestModelViewRendersHostname(t *testing.T) {
 	m := newModel(nil, nil, "myhostname", "")
 	view := m.View()
-	if view == "" {
+	if view.Content == "" {
 		t.Error("expected non-empty view")
 	}
 }
@@ -73,13 +87,26 @@ func TestStatusBarRendersHostname(t *testing.T) {
 	view := m.View()
 	found := false
 	for _, part := range []string{"vps-fra1"} {
-		if contains(view, part) {
+		if contains(view.Content, part) {
 			found = true
 		}
 	}
 	if !found {
 		t.Error("hostname not found in view")
 	}
+}
+
+func keyText(text string) tea.KeyPressMsg {
+	r := []rune(text)
+	code := rune(0)
+	if len(r) > 0 {
+		code = r[0]
+	}
+	return tea.KeyPressMsg(tea.Key{Text: text, Code: code})
+}
+
+func keyPress(key tea.Key) tea.KeyPressMsg {
+	return tea.KeyPressMsg(key)
 }
 
 func contains(s, sub string) bool {

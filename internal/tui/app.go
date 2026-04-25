@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/pdasilem/openclaw-multi/internal/admin"
 	"github.com/pdasilem/openclaw-multi/internal/audit"
@@ -16,6 +16,7 @@ import (
 	"github.com/pdasilem/openclaw-multi/internal/shell"
 	"github.com/pdasilem/openclaw-multi/internal/state"
 	"github.com/pdasilem/openclaw-multi/internal/tui/wizard"
+	userops "github.com/pdasilem/openclaw-multi/internal/users"
 )
 
 const version = "v0.1.0"
@@ -28,6 +29,7 @@ const (
 	screenPlaceholder
 	screenFirstRun
 	screenWizard
+	screenUsers
 )
 
 // Model is the root Bubble Tea model.
@@ -41,9 +43,11 @@ type Model struct {
 	placeholder placeholderModel
 	firstRun    firstRunModel
 	wizard      tea.Model
+	users       userManagementModel
 
-	store  *state.Store
-	logger *audit.Logger
+	store       *state.Store
+	logger      *audit.Logger
+	userService userService
 }
 
 func newModel(store *state.Store, logger *audit.Logger, hostname, rootWarn string) Model {
@@ -85,6 +89,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = screenWizard
 			return m, wiz.Init()
 		}
+		if msg.ItemID == 3 {
+			m.users = newUserManagement(m.userService)
+			m.screen = screenUsers
+			return m, m.users.Init()
+		}
 		title := menuItems[msg.ItemID-1].label
 		m.placeholder = newPlaceholder(msg.ItemID, title)
 		m.screen = screenPlaceholder
@@ -122,12 +131,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.wizard = updated
 			return m, cmd
 		}
+	case screenUsers:
+		updated, cmd := m.users.Update(msg)
+		m.users = updated
+		return m, cmd
 	}
 	return m, nil
 }
 
 // View implements tea.Model.
-func (m Model) View() string {
+func (m Model) View() tea.View {
 	var b strings.Builder
 
 	// Title bar.
@@ -158,13 +171,17 @@ func (m Model) View() string {
 		b.WriteString(m.firstRun.View())
 	case screenWizard:
 		if m.wizard != nil {
-			b.WriteString(m.wizard.View())
+			b.WriteString(m.wizard.View().Content)
 		}
+	case screenUsers:
+		b.WriteString(m.users.View())
 	}
 
 	b.WriteByte('\n')
 	b.WriteString(StatusStyle.Render("  ↑/↓ navigate   Enter select   q quit"))
-	return b.String()
+	v := tea.NewView(b.String())
+	v.AltScreen = true
+	return v
 }
 
 // launchFreshInstall creates the fresh-install wizard model.
@@ -210,6 +227,14 @@ func Run() error {
 
 	hostname, _ := os.Hostname()
 	rootWarn := admin.WarnIfRoot()
+	cfg, cfgErr := config.Load("/etc/openclaw-multi/config.yml")
+	if cfgErr != nil && !errors.Is(cfgErr, config.ErrNotFound) {
+		return fmt.Errorf("load config: %w", cfgErr)
+	}
+	exec := &shell.RealExecutor{Logger: logger}
+	fs := shell.RealFS{}
+	userManager := userops.NewManager(store, exec, fs, cfg, nil, logger)
+	userManager.TemplateDir = "/opt/openclaw-multi/templates"
 
 	existing, err := store.GetAdmin(ctx)
 
@@ -222,6 +247,7 @@ func Run() error {
 		}
 		fr := newFirstRun(store, logger, candidate)
 		m = newModel(store, logger, hostname, rootWarn)
+		m.userService = userManager
 		m.screen = screenFirstRun
 		m.firstRun = fr
 	case err != nil:
@@ -249,9 +275,10 @@ func Run() error {
 			Result: audit.ResultOk,
 		})
 		m = newModel(store, logger, hostname, rootWarn)
+		m.userService = userManager
 	}
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m)
 	_, err = p.Run()
 	return err
 }

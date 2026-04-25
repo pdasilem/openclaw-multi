@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // mockStep is a Step that returns a pre-configured error (or nil).
@@ -66,7 +66,7 @@ func TestWizardShowsErrorOnFailure(t *testing.T) {
 	if m.errText != "something broke" {
 		t.Errorf("errText: got %q", m.errText)
 	}
-	if m.View() == "" {
+	if m.View().Content == "" {
 		t.Error("expected non-empty view")
 	}
 }
@@ -84,7 +84,7 @@ func TestWizardRetry(t *testing.T) {
 	}
 
 	// Press R to retry.
-	m, cmd = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	m, cmd = update(m, keyText("r"))
 	if cmd != nil {
 		m, cmd = update(m, cmd())
 	}
@@ -106,7 +106,7 @@ func TestWizardSkip(t *testing.T) {
 	m, _ = update(m, cmd())
 
 	// Skip the failed step.
-	m, cmd = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	m, cmd = update(m, keyText("s"))
 	if cmd != nil {
 		_, cmd = update(m, cmd())
 	}
@@ -134,7 +134,7 @@ func TestWizardAbort(t *testing.T) {
 	cmd := m.Init()
 	m, _ = update(m, cmd())
 
-	_, cmd = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	_, cmd = update(m, keyText("a"))
 	if cmd == nil {
 		t.Fatal("expected quit cmd after Abort")
 	}
@@ -179,7 +179,7 @@ func TestWizardKeyIgnoredWhenNotWaiting(t *testing.T) {
 	// Key press should be ignored when wizard is not in waitKey state
 	m := New(context.Background(), []Step{&mockStep{name: "pending"}})
 	// Don't init — just send a key press, should be ignored
-	m2, cmd := update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	m2, cmd := update(m, keyText("r"))
 	if cmd != nil {
 		t.Error("expected nil cmd when not in waitKey state")
 	}
@@ -198,7 +198,16 @@ func TestWizardViewAllStates(t *testing.T) {
 	cmd := m.Init()
 	_ = cmd
 	view := m.View()
-	if view == "" {
+	if view.Content == "" {
 		t.Error("expected non-empty view")
 	}
+}
+
+func keyText(text string) tea.KeyPressMsg {
+	r := []rune(text)
+	code := rune(0)
+	if len(r) > 0 {
+		code = r[0]
+	}
+	return tea.KeyPressMsg(tea.Key{Text: text, Code: code})
 }
