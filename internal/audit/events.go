@@ -15,6 +15,8 @@ const (
 	ActionDisableUser    ActionType = "disable_user"
 	ActionBackupCreate   ActionType = "backup_create"
 	ActionBackupRestore  ActionType = "backup_restore"
+	ActionDoctorRun      ActionType = "doctor_run"
+	ActionDoctorFix      ActionType = "doctor_fix"
 	ActionUninstall      ActionType = "uninstall"
 	ActionAdminSet       ActionType = "admin_set"
 	ActionStartup        ActionType = "startup"

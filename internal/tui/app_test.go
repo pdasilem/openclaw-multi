@@ -64,6 +64,17 @@ func TestModelMenuActionRoutesToUsers(t *testing.T) {
 	}
 }
 
+func TestModelMenuActionRoutesToDoctor(t *testing.T) {
+	m := newModel(nil, nil, "testhost", "")
+	m.doctorService = &fakeDoctorService{}
+	m.screen = screenMainMenu
+	updated, _ := m.Update(MenuActionMsg{ItemID: 4})
+	um := updated.(Model)
+	if um.screen != screenDoctor {
+		t.Errorf("expected screenDoctor, got %d", um.screen)
+	}
+}
+
 func TestModelBackReturnsToMainMenu(t *testing.T) {
 	m := newModel(nil, nil, "testhost", "")
 	m.screen = screenPlaceholder

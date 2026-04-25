@@ -14,6 +14,7 @@ import (
 	"github.com/pdasilem/openclaw-multi/internal/audit"
 	"github.com/pdasilem/openclaw-multi/internal/backup"
 	"github.com/pdasilem/openclaw-multi/internal/config"
+	"github.com/pdasilem/openclaw-multi/internal/doctor"
 	"github.com/pdasilem/openclaw-multi/internal/shell"
 	"github.com/pdasilem/openclaw-multi/internal/state"
 	"github.com/pdasilem/openclaw-multi/internal/tui/wizard"
@@ -31,6 +32,7 @@ const (
 	screenFirstRun
 	screenWizard
 	screenUsers
+	screenDoctor
 )
 
 // Model is the root Bubble Tea model.
@@ -45,11 +47,13 @@ type Model struct {
 	firstRun    firstRunModel
 	wizard      tea.Model
 	users       userManagementModel
+	doctor      doctorModel
 
 	store         *state.Store
 	logger        *audit.Logger
 	userService   userService
 	backupService backupService
+	doctorService doctorService
 }
 
 func newModel(store *state.Store, logger *audit.Logger, hostname, rootWarn string) Model {
@@ -96,6 +100,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = screenUsers
 			return m, m.users.Init()
 		}
+		if msg.ItemID == 4 {
+			m.doctor = newDoctor(m.doctorService)
+			m.screen = screenDoctor
+			return m, m.doctor.Init()
+		}
 		title := menuItems[msg.ItemID-1].label
 		m.placeholder = newPlaceholder(msg.ItemID, title)
 		m.screen = screenPlaceholder
@@ -137,6 +146,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		updated, cmd := m.users.Update(msg)
 		m.users = updated
 		return m, cmd
+	case screenDoctor:
+		updated, cmd := m.doctor.Update(msg)
+		m.doctor = updated
+		return m, cmd
 	}
 	return m, nil
 }
@@ -177,6 +190,8 @@ func (m Model) View() tea.View {
 		}
 	case screenUsers:
 		b.WriteString(m.users.View())
+	case screenDoctor:
+		b.WriteString(m.doctor.View())
 	}
 
 	b.WriteByte('\n')
@@ -239,6 +254,7 @@ func Run() error {
 	userManager.TemplateDir = "/opt/openclaw-multi/templates"
 	backupManager := backup.NewManager(store, exec, fs, logger, backup.Options{TemplateDir: "/opt/openclaw-multi/templates"})
 	userManager.BeforeRemove = backupManager
+	doctorChecker := doctor.NewChecker(store, exec, fs, logger, doctor.Options{})
 
 	existing, err := store.GetAdmin(ctx)
 
@@ -253,6 +269,7 @@ func Run() error {
 		m = newModel(store, logger, hostname, rootWarn)
 		m.userService = userManager
 		m.backupService = backupManager
+		m.doctorService = doctorChecker
 		m.screen = screenFirstRun
 		m.firstRun = fr
 	case err != nil:
@@ -282,6 +299,7 @@ func Run() error {
 		m = newModel(store, logger, hostname, rootWarn)
 		m.userService = userManager
 		m.backupService = backupManager
+		m.doctorService = doctorChecker
 	}
 
 	p := tea.NewProgram(m)

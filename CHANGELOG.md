@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## v0.4.0 - 2026-04-25
+
+### Added
+- `internal/doctor`: structured health checks for system, services, managed
+  users, filesystem permissions, gateway port listeners, and OpenClaw doctor
+  output.
+- TUI menu item 4 now opens a real Health Check / Doctor screen.
+- Narrow auto-fix support for approved permission/profile drift only.
+- Audit actions `doctor_run` and `doctor_fix`.
+- `docs/health.md` and `docs/phases/phase-4-retro.md`.
+
+### Changed
+- `shell.MemFS` test double now supports configurable file modes for
+  permission-check tests.
+
 ## v0.3.0 - 2026-04-25
 
 ### Added
