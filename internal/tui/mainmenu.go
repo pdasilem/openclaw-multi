@@ -15,16 +15,16 @@ type menuItem struct {
 
 // menuItems is the ordered list of main menu entries (§6.1 master plan).
 var menuItems = []menuItem{
-	{1, "Установка с нуля (fresh install)"},
-	{2, "Обновление OpenClaw"},
-	{3, "Управление пользователями"},
+	{1, "Fresh install"},
+	{2, "Update OpenClaw"},
+	{3, "User management"},
 	{4, "Health check / Doctor"},
-	{5, "Сеть и фаервол (Tailscale, Cloudflare, UFW)"},
-	{6, "Плагины и туннели (обзор по юзерам)"},
-	{7, "Логи и мониторинг"},
-	{8, "Аудит безопасности"},
-	{9, "Diagnostic snapshot (для support)"},
-	{10, "Удаление OpenClaw / overlay"},
+	{5, "Network and firewall (Tailscale, Cloudflare, UFW)"},
+	{6, "Plugins and tunnels (user overview)"},
+	{7, "Logs and monitoring"},
+	{8, "Security audit"},
+	{9, "Diagnostic snapshot (support)"},
+	{10, "Remove OpenClaw / overlay"},
 }
 
 // menuPhases maps menu item ID → the implementation phase number.
@@ -85,6 +85,6 @@ func (m mainMenuModel) View() string {
 		}
 		b.WriteByte('\n')
 	}
-	b.WriteString(MenuItemStyle.Render("   0. Выход"))
+	b.WriteString(MenuItemStyle.Render("   0. Exit"))
 	return b.String()
 }

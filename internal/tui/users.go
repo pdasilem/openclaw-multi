@@ -114,9 +114,9 @@ func (m userManagementModel) Update(msg tea.Msg) (userManagementModel, tea.Cmd) 
 
 func (m userManagementModel) View() string {
 	var b strings.Builder
-	b.WriteString("Управление пользователями\n\n")
+	b.WriteString("User management\n\n")
 	if m.errText != "" {
-		b.WriteString(WarnStyle.Render("Ошибка: " + m.errText))
+		b.WriteString(WarnStyle.Render("Error: " + m.errText))
 		b.WriteString("\n\n")
 	}
 	if m.status != "" {

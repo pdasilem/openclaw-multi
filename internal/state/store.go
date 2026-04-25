@@ -250,6 +250,32 @@ func (s *Store) ListRoutesByUser(ctx context.Context, username string) ([]Route,
 	return routes, nil
 }
 
+// ListRoutes returns all routes sorted by username, kind, plugin_id, hostname.
+func (s *Store) ListRoutes(ctx context.Context) ([]Route, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, username, kind, COALESCE(plugin_id, ''), local_port, hostname,
+		       enabled, created_at, COALESCE(last_seen_cached_at, ''), COALESCE(last_seen_value, '')
+		FROM routes
+		ORDER BY username, kind, plugin_id, hostname`)
+	if err != nil {
+		return nil, fmt.Errorf("list routes: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var routes []Route
+	for rows.Next() {
+		r, err := scanRoute(rows)
+		if err != nil {
+			return nil, err
+		}
+		routes = append(routes, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list routes rows: %w", err)
+	}
+	return routes, nil
+}
+
 // UpsertRoute inserts or updates a route.
 func (s *Store) UpsertRoute(ctx context.Context, r Route) error {
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -300,6 +326,18 @@ func (s *Store) SetRoutesEnabled(ctx context.Context, username string, enabled b
 		return fmt.Errorf("set routes enabled for %q: %w", username, err)
 	}
 	return nil
+}
+
+// SetRouteLastSeen updates cached last-seen metadata for a route.
+func (s *Store) SetRouteLastSeen(ctx context.Context, id string, seenAt time.Time) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE routes SET last_seen_cached_at = ?, last_seen_value = ? WHERE id = ?`,
+		now, seenAt.UTC().Format(time.RFC3339), id)
+	if err != nil {
+		return fmt.Errorf("set route last seen %q: %w", id, err)
+	}
+	return requireAffected(res, ErrNoRoute)
 }
 
 // ListBackupsByUser returns backup records for username, newest first.

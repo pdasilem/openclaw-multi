@@ -15,6 +15,7 @@ import (
 	"github.com/pdasilem/openclaw-multi/internal/backup"
 	"github.com/pdasilem/openclaw-multi/internal/config"
 	"github.com/pdasilem/openclaw-multi/internal/doctor"
+	"github.com/pdasilem/openclaw-multi/internal/network"
 	"github.com/pdasilem/openclaw-multi/internal/shell"
 	"github.com/pdasilem/openclaw-multi/internal/state"
 	"github.com/pdasilem/openclaw-multi/internal/tui/wizard"
@@ -33,6 +34,7 @@ const (
 	screenWizard
 	screenUsers
 	screenDoctor
+	screenNetwork
 )
 
 // Model is the root Bubble Tea model.
@@ -48,12 +50,14 @@ type Model struct {
 	wizard      tea.Model
 	users       userManagementModel
 	doctor      doctorModel
+	network     networkModel
 
-	store         *state.Store
-	logger        *audit.Logger
-	userService   userService
-	backupService backupService
-	doctorService doctorService
+	store          *state.Store
+	logger         *audit.Logger
+	userService    userService
+	backupService  backupService
+	doctorService  doctorService
+	networkService networkService
 }
 
 func newModel(store *state.Store, logger *audit.Logger, hostname, rootWarn string) Model {
@@ -105,6 +109,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = screenDoctor
 			return m, m.doctor.Init()
 		}
+		if msg.ItemID == 5 {
+			m.network = newNetwork(m.networkService)
+			m.screen = screenNetwork
+			return m, m.network.Init()
+		}
 		title := menuItems[msg.ItemID-1].label
 		m.placeholder = newPlaceholder(msg.ItemID, title)
 		m.screen = screenPlaceholder
@@ -150,6 +159,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		updated, cmd := m.doctor.Update(msg)
 		m.doctor = updated
 		return m, cmd
+	case screenNetwork:
+		updated, cmd := m.network.Update(msg)
+		m.network = updated
+		return m, cmd
 	}
 	return m, nil
 }
@@ -192,6 +205,8 @@ func (m Model) View() tea.View {
 		b.WriteString(m.users.View())
 	case screenDoctor:
 		b.WriteString(m.doctor.View())
+	case screenNetwork:
+		b.WriteString(m.network.View())
 	}
 
 	b.WriteByte('\n')
@@ -255,6 +270,7 @@ func Run() error {
 	backupManager := backup.NewManager(store, exec, fs, logger, backup.Options{TemplateDir: "/opt/openclaw-multi/templates"})
 	userManager.BeforeRemove = backupManager
 	doctorChecker := doctor.NewChecker(store, exec, fs, logger, doctor.Options{})
+	networkManager := network.NewManager(store, exec, cfg, nil, logger)
 
 	existing, err := store.GetAdmin(ctx)
 
@@ -270,6 +286,7 @@ func Run() error {
 		m.userService = userManager
 		m.backupService = backupManager
 		m.doctorService = doctorChecker
+		m.networkService = networkManager
 		m.screen = screenFirstRun
 		m.firstRun = fr
 	case err != nil:
@@ -300,6 +317,7 @@ func Run() error {
 		m.userService = userManager
 		m.backupService = backupManager
 		m.doctorService = doctorChecker
+		m.networkService = networkManager
 	}
 
 	p := tea.NewProgram(m)

@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## v0.5.0 - 2026-04-25
+
+### Added
+- `internal/network`: structured network snapshots for Tailscale, Cloudflare
+  Tunnel, UFW, route inventory, open ports, gateway probes, wildcard DNS plans,
+  and cloudflared last_seen parsing.
+- TUI menu item 5 now opens a real Network and firewall screen.
+- Cloudflare DNS client boundary with list/create/update support and explicit
+  wildcard DNS review/apply flow.
+- UFW review/apply flow for enabled route ports using the existing conservative
+  `deps.EnsureUFW` helper.
+- Audit actions `network_refresh`, `network_probe`, `dns_update`, and
+  `ufw_update`.
+- Config fields `cloudflare_zone_id` and `cloudflare_api_token`.
+- `state.ListRoutes` and `state.SetRouteLastSeen`.
+- `docs/network.md` and `docs/phases/phase-5-retro.md`.
+
+### Changed
+- Main TUI menu and user-management headings now use English-only labels.
+
 ## v0.4.0 - 2026-04-25
 
 ### Added
