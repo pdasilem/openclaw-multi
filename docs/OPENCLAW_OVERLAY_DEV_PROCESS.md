@@ -277,6 +277,10 @@ For each task, the agent:
    Commit message format: `phase-<N>: <summary>`.
 4. Pushes via `gh` CLI using `git -c user.name/user.email` flags — never via raw git config.
 5. Updates the task status in the phase doc (`status: completed`) after push.
+6. Adds or updates any owner-run VPS validation scenarios in
+   `docs/e2e-use-cases.md` when the task introduces, changes, or discovers a
+   user-visible workflow that cannot be fully proven by automated unit/smoke
+   tests.
 
 ### 5.4. Step 4 — Review each PR
 
@@ -334,6 +338,33 @@ Verifier (or the owner) writes `docs/phases/phase-<N>-retro.md`:
 
 This retrospective is the **first input** to the next phase's planning.
 It is **frozen** once written.
+
+### 5.7. Owner-run E2E use cases
+
+The repository keeps a separate living document:
+
+```text
+docs/e2e-use-cases.md
+```
+
+This document is the owner-run validation checklist for a real VPS. During
+planning and implementation, agents must add concrete use cases there whenever
+they add or change a behavior that should later be verified outside mocks,
+Docker smoke tests, or CI.
+
+Each use case must include:
+
+- stable ID, title, and owning phase;
+- scenario type: `automated-smoke`, `owner-vps`, or both;
+- preconditions;
+- exact validation steps the owner can run on the VPS;
+- expected result;
+- logs/artifacts to capture when the result differs.
+
+The use-case document is not frozen. It is updated continuously as new
+workflows are added, as smoke tests reveal better checks, and as owner-run VPS
+validation finds gaps. Phase retrospectives should mention any use cases added,
+changed, failed, or carried forward.
 
 ---
 

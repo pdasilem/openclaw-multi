@@ -1,0 +1,646 @@
+# E2E and Smoke Use Cases
+
+This is the owner-run VPS validation checklist. Automated tests prove package
+logic and smoke behavior where possible; this document captures workflows that
+must also be exercised on a real VPS before the product is considered reliable.
+
+Status values:
+
+- `planned`: not yet owner-validated on a VPS.
+- `passed`: owner validated on a VPS and no product change is needed.
+- `failed`: owner validated and found a product/doc gap.
+- `blocked`: cannot run until a later phase lands.
+
+When a check fails, capture the command output, relevant journal logs, current
+config snippets with secrets redacted, and whether the VPS was newly installed
+or already had OpenClaw/cloudflared/Tailscale state.
+
+## Phase 0: Repository and Binary Smoke
+
+### UC-0001: Build and Run Binaries
+
+- Phase: 0
+- Scenario type: `automated-smoke`, `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- Repo checked out on the target VPS.
+- Go toolchain installed at the repository baseline version.
+
+**Steps.**
+
+1. Run `make build`.
+2. Run `bin/openclaw-multi --help` if the flag exists, or start the TUI and
+   exit without changing state.
+3. Run `bin/openclaw-overlay-api` and confirm that before Phase 6 it is only a
+   known stub, and after Phase 6 it starts as a daemon.
+4. Run `bin/openclaw-overlay-watcher` and confirm that before Phase 7 it is only
+   a known stub.
+
+**Expected result.**
+
+- All binaries build.
+- Stub behavior matches the current phase boundary.
+- No unexpected files are created outside configured overlay paths.
+
+**Capture on failure.**
+
+- `go version`
+- `make build` output
+- binary stderr/stdout
+
+## Phase 1: Fresh Install
+
+### UC-0101: Fresh Install on Clean VPS
+
+- Phase: 1
+- Scenario type: `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- Clean Ubuntu VPS or disposable test VPS.
+- SSH access as the intended admin user.
+- No production OpenClaw data on the host.
+
+**Steps.**
+
+1. Start `openclaw-multi`.
+2. Complete the first-run admin setup.
+3. Run menu item `1. Fresh install`.
+4. Choose the account/named Cloudflare Tunnel path when credentials are
+   available.
+5. After the wizard finishes, inspect generated files:
+   `/etc/openclaw-multi/config.yml`, `/etc/systemd/system/cloudflared.service`,
+   `/etc/systemd/system/openclaw-overlay-api.service`, and overlay templates.
+6. Run `systemctl is-active tailscaled cloudflared openclaw-overlay-api`.
+
+**Expected result.**
+
+- Required packages and services are installed or reused.
+- Existing host state is not overwritten without an explicit confirmation.
+- Overlay config contains domain, subdomain, tunnel mode, and port range.
+- `cloudflared` and `openclaw-overlay-api` service states match the phase:
+  Phase 1 may install a stub service; Phase 6 must run the real daemon.
+
+**Capture on failure.**
+
+- Wizard transcript/screenshots.
+- `journalctl -u cloudflared -u openclaw-overlay-api --no-pager -n 200`
+- Redacted `/etc/openclaw-multi/config.yml`
+
+### UC-0102: Idempotent Fresh Install Rerun
+
+- Phase: 1
+- Scenario type: `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- UC-0101 has run once.
+
+**Steps.**
+
+1. Run menu item `1. Fresh install` again.
+2. Choose to reuse existing installed components.
+3. Decline any destructive overwrite prompts unless intentionally testing
+   overwrite behavior.
+
+**Expected result.**
+
+- Existing Tailscale identity is not reset.
+- Existing cloudflared tunnel/config is backed up before overwrite.
+- Re-running the wizard does not duplicate systemd units or corrupt config.
+
+**Capture on failure.**
+
+- Wizard transcript/screenshots.
+- `systemctl cat cloudflared openclaw-overlay-api`
+- `/var/lib/openclaw-multi/snapshots` listing
+
+## Phase 2: User Lifecycle
+
+### UC-0201: Add Managed User and Gateway State
+
+- Phase: 2
+- Scenario type: `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- Fresh install completed.
+- `/etc/openclaw-multi/config.yml` has `domain` and `subdomain`.
+- Phase 6 is required before public cloudflared route publication is expected.
+
+**Steps.**
+
+1. Open menu item `3. User management`.
+2. Add a user named `alice`.
+3. Check Linux user state with `id alice`.
+4. Check linger with `loginctl show-user alice -p Linger`.
+5. Check user services with
+   `sudo -iu alice systemctl --user status openclaw-gateway`.
+6. Inspect route state in `state.db` or through the TUI route list.
+
+**Expected result.**
+
+- User `alice` exists.
+- Linger is enabled.
+- OpenClaw gateway service is installed/running for the user.
+- Gateway URL has the form
+  `https://gateway-alice.<subdomain>.<domain>`.
+- Before Phase 6, the route is state-only. After Phase 6, cloudflared config
+  includes the route.
+
+**Capture on failure.**
+
+- TUI transcript/screenshots.
+- `journalctl --user -u openclaw-gateway` for `alice`
+- Relevant rows from state DB with tokens redacted.
+
+### UC-0202: Deactivate and Reactivate Managed User
+
+- Phase: 2
+- Scenario type: `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- UC-0201 created user `alice`.
+
+**Steps.**
+
+1. Deactivate `alice` from menu item `3`.
+2. Check that linger is disabled.
+3. Check that `openclaw-gateway` and watcher services are stopped or absent for
+   the paused user.
+4. After Phase 6, request the gateway URL and verify it no longer routes to the
+   user's gateway.
+5. Reactivate `alice`.
+6. Check that linger and services are restored.
+7. After Phase 6, request the gateway URL again.
+
+**Expected result.**
+
+- Deactivate is idempotent and does not delete user data.
+- Reactivate restores the user's intended runtime state.
+- After Phase 6, cloudflared route publication follows the enabled/disabled
+  route state.
+
+**Capture on failure.**
+
+- `loginctl show-user alice -p Linger`
+- `sudo -iu alice systemctl --user status openclaw-gateway openclaw-overlay-watcher`
+- `curl -vk https://gateway-alice.<subdomain>.<domain>/`
+
+### UC-0203: Remove User Is Backup-First and Frees Port
+
+- Phase: 2, 3
+- Scenario type: `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- User `alice` exists.
+- Phase 3 backup support is present.
+
+**Steps.**
+
+1. Remove `alice` from menu item `3`.
+2. Confirm the destructive prompt by typing the exact username.
+3. Verify a backup was created before user deletion.
+4. Verify `id alice` fails.
+5. Add a new user and verify the freed gateway port can be reused when it is the
+   lowest valid free port.
+
+**Expected result.**
+
+- Remove aborts if pre-remove backup fails.
+- Backup metadata survives user deletion.
+- Linux user, route state, and active user services are removed.
+- Port reuse follows the allocator rule.
+
+**Capture on failure.**
+
+- Backup command output.
+- Backup metadata row.
+- User manager audit events: `backup_create`, `delete_user`, `delete_route`.
+
+## Phase 3: Backup and Restore
+
+### UC-0301: Create and Verify User Backup
+
+- Phase: 3
+- Scenario type: `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- Managed user exists and has OpenClaw config/data.
+
+**Steps.**
+
+1. Select the user in menu item `3`.
+2. Press `b` to create a backup.
+3. Inspect `/var/lib/openclaw-multi/backups/<username>/`.
+4. Confirm `/etc/openclaw-multi/master.key` exists and has mode `0600`.
+5. Confirm backup metadata appears in the TUI restore list or state DB.
+
+**Expected result.**
+
+- `openclaw backup create --verify` succeeds under the target user.
+- Encrypted backup archive is created.
+- SHA-256, size, path, and timestamp are recorded.
+
+**Capture on failure.**
+
+- `openclaw backup create` stdout/stderr.
+- File listing with permissions.
+- Audit event `backup_create`.
+
+### UC-0302: Restore Existing Managed User
+
+- Phase: 3
+- Scenario type: `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- UC-0301 created at least one backup.
+- Target user still exists.
+
+**Steps.**
+
+1. Change a harmless user config value or add a small test artifact in
+   `~/.openclaw`.
+2. Restore the selected backup with `r` from menu item `3`.
+3. Verify the gateway service stops during restore and starts after restore.
+4. Verify restored OpenClaw config/data matches the backup.
+
+**Expected result.**
+
+- Restore verifies the backup before replacing `~/.openclaw`.
+- Ownership and permissions are correct after restore.
+- Gateway service is running after restore for an active user.
+
+**Capture on failure.**
+
+- Restore command output.
+- `ls -la /home/<username>/.openclaw`
+- `journalctl --user -u openclaw-gateway`
+
+## Phase 4: Health Check / Doctor
+
+### UC-0401: Run Read-only Health Check
+
+- Phase: 4
+- Scenario type: `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- At least one active managed user exists.
+
+**Steps.**
+
+1. Open menu item `4. Health check / Doctor`.
+2. Run a normal health check.
+3. Review system, services, users, filesystem, network, and OpenClaw sections.
+4. Confirm no mutation happens during the read-only run.
+
+**Expected result.**
+
+- Results are grouped by category with `ok`, `warn`, `fail`, or `skipped`.
+- Later-phase components that are not yet implemented show `skipped`, not false
+  failures.
+- Paused users are skipped for runtime checks.
+
+**Capture on failure.**
+
+- TUI screenshot/transcript.
+- `journalctl -u openclaw-overlay-api -u cloudflared --no-pager -n 100`
+- `sudo -iu <user> openclaw doctor --json`
+
+### UC-0402: Apply Allowed Permission Fix
+
+- Phase: 4
+- Scenario type: `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- A disposable managed user exists.
+
+**Steps.**
+
+1. Intentionally set a fixable permission drift, for example
+   `chmod 0755 /home/<user>/.openclaw`.
+2. Run menu item `4`.
+3. Apply only the offered allowlisted fix.
+4. Re-run health check.
+
+**Expected result.**
+
+- Only allowlisted fixes are offered.
+- Permission is corrected to the documented mode.
+- No unrelated system mutation happens.
+
+**Capture on failure.**
+
+- Before/after `stat` output.
+- `doctor_fix` audit event.
+
+## Phase 5: Network and Firewall
+
+### UC-0501: Inspect Network Snapshot
+
+- Phase: 5
+- Scenario type: `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- Tailscale/cloudflared/UFW installed according to chosen install path.
+- At least one managed route exists in state.
+
+**Steps.**
+
+1. Open menu item `5. Network and firewall`.
+2. Press `r` to refresh.
+3. Review Tailscale, Cloudflare Tunnel, UFW, routes, and listening ports.
+
+**Expected result.**
+
+- Tailscale is shown as admin-only.
+- Cloudflared version/service/config-derived fields are visible.
+- Route inventory shows hostname, local port, owner, enabled state, and cached
+  last_seen if available.
+- Public listeners are flagged.
+
+**Capture on failure.**
+
+- TUI screenshot/transcript.
+- `tailscale status --json`
+- `cloudflared --version`
+- `ufw status verbose`
+- `ss -ltnp`
+
+### UC-0502: Plan and Apply Wildcard DNS
+
+- Phase: 5
+- Scenario type: `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- Account/named tunnel mode.
+- Config has `domain`, `subdomain`, `tunnel_id`, `cloudflare_zone_id`, and
+  `cloudflare_api_token`.
+
+**Steps.**
+
+1. Open menu item `5`.
+2. Press `d` to build the wildcard DNS plan.
+3. Review the planned record:
+   `*.${subdomain}.${domain} CNAME ${tunnel_id}.cfargotunnel.com`.
+4. Apply the plan.
+5. Verify the DNS record in Cloudflare dashboard or API.
+
+**Expected result.**
+
+- Missing credentials produce a clear precondition error and no mutation.
+- Existing matching record results in `noop`.
+- Missing record is created.
+- Differing matching record is updated only after explicit review.
+
+**Capture on failure.**
+
+- DNS plan text.
+- Redacted Cloudflare API response.
+- `dns_update` audit event.
+
+### UC-0503: Plan and Apply UFW Route Ports
+
+- Phase: 5
+- Scenario type: `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- UFW installed.
+- One or more enabled routes exist.
+
+**Steps.**
+
+1. Open menu item `5`.
+2. Press `u` to build the UFW plan.
+3. Review missing enabled route ports.
+4. Apply the plan.
+5. Run `ufw status verbose`.
+
+**Expected result.**
+
+- Existing rules are preserved.
+- UFW is not reset.
+- Required route ports are allowed.
+- Default policy remains deny incoming / allow outgoing.
+
+**Capture on failure.**
+
+- Before/after `ufw status verbose`.
+- `ufw_update` audit event.
+
+### UC-0504: Probe Gateway URL
+
+- Phase: 5, 6
+- Scenario type: `owner-vps`
+- Status: `blocked`
+
+**Preconditions.**
+
+- Phase 6 route publication is implemented.
+- Gateway route exists and DNS is configured.
+
+**Steps.**
+
+1. Open menu item `5`.
+2. Press `p` to probe enabled gateway URLs.
+3. Independently run `curl -vk https://gateway-<user>.<subdomain>.<domain>/`.
+
+**Expected result.**
+
+- Probe reaches the user's gateway through Cloudflare Tunnel.
+- Per-route failures are shown without aborting the full probe batch.
+
+**Capture on failure.**
+
+- TUI probe result.
+- `curl -vk` output.
+- `journalctl -u cloudflared --no-pager -n 200`.
+
+## Phase 6: Overlay-API and Cloudflared Publication
+
+### UC-0601: SIGHUP Reloads Local Cloudflared Config
+
+- Phase: 6
+- Scenario type: `automated-smoke`, `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- Account/named Cloudflare Tunnel is running as `cloudflared.service`.
+- Wildcard DNS points at the tunnel.
+- Phase 6 overlay-API is installed and running.
+- Test user `alice` exists with a running local gateway.
+
+**Steps.**
+
+1. Record current cloudflared process ID:
+   `systemctl show cloudflared -p MainPID`.
+2. Through overlay-API, publish or update
+   `gateway-alice.<subdomain>.<domain>` to Alice's local gateway port.
+3. Verify `/etc/cloudflared/config.yml` contains the new ingress rule and final
+   `http_status:404`.
+4. Send SIGHUP to cloudflared:
+   `sudo kill -HUP $(systemctl show cloudflared -p MainPID --value)`.
+5. Verify the process did not exit unexpectedly:
+   `systemctl is-active cloudflared` and `systemctl show cloudflared -p MainPID`.
+6. Request the new route:
+   `curl -vk https://gateway-alice.<subdomain>.<domain>/`.
+7. Disable the route through overlay-API, send SIGHUP again, and request the
+   same URL.
+
+**Expected result.**
+
+- SIGHUP is the selected Phase 6 reload mechanism.
+- Cloudflared stays active after SIGHUP.
+- Newly added route becomes reachable after SIGHUP.
+- Disabled route stops reaching Alice's gateway after SIGHUP and falls through
+  to the catch-all behavior.
+
+**Capture on failure.**
+
+- `/etc/cloudflared/config.yml` before/after with secrets redacted.
+- `journalctl -u cloudflared --no-pager -n 300`.
+- `systemctl status cloudflared`.
+- `curl -vk` output for enabled and disabled route.
+
+### UC-0602: Overlay-API Rejects Wrong User UID
+
+- Phase: 6
+- Scenario type: `automated-smoke`, `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- Users `alice` and `bob` exist.
+- overlay-API is listening on `/run/openclaw-overlay.sock`.
+
+**Steps.**
+
+1. As `alice`, call a route endpoint for `alice`.
+2. As `alice`, call the same route endpoint for `bob`.
+3. As root, call the route endpoint for `bob`.
+
+**Expected result.**
+
+- Alice can manage Alice's allowed route operations.
+- Alice receives authorization failure for Bob's routes.
+- Root can manage Bob's routes.
+
+**Capture on failure.**
+
+- HTTP status and JSON body.
+- overlay-API journal logs.
+- State DB route rows for both users.
+
+### UC-0603: Cloudflared Config Rollback
+
+- Phase: 6
+- Scenario type: `automated-smoke`, `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- overlay-API is running with a known-good cloudflared config.
+
+**Steps.**
+
+1. Trigger a route publication that makes validation fail in a controlled way
+   on a disposable VPS or smoke harness.
+2. Inspect `/etc/cloudflared/config.yml`.
+3. Inspect `/var/lib/openclaw-multi/snapshots/`.
+4. Check overlay-API response and audit events.
+
+**Expected result.**
+
+- Invalid candidate config is not activated.
+- Previous config is restored.
+- Audit reports error or rollback result.
+
+**Capture on failure.**
+
+- Candidate and restored configs.
+- overlay-API response body.
+- `cloudflared_config_publish` / reload audit events.
+
+### UC-0604: Daemon-derived Plugin Route IDs Are Idempotent
+
+- Phase: 6, 7
+- Scenario type: `automated-smoke`, `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- Phase 6 overlay-API is installed and running.
+- Test user `alice` exists.
+- A disposable local callback service is listening on a known port.
+
+**Steps.**
+
+1. Call `POST /users/alice/routes` through the UNIX socket with
+   `plugin_id=test-plugin`, `hostname_hint=callback`, and the callback local
+   port.
+2. Record the returned `route_id`, hostname, and URL.
+3. Call the same endpoint again with the same `plugin_id`, `hostname_hint`, and
+   port.
+4. Verify the second response returns the same `route_id` and updates the same
+   state row rather than creating a duplicate.
+5. Change only the local port and call the same endpoint again.
+6. Verify the route keeps the same `route_id` and points to the new local port.
+7. Call the endpoint with the same `plugin_id` but a different
+   `hostname_hint`, for example `oauth`.
+8. Verify a second deterministic route is created for the new hint.
+9. After Phase 7 watcher exists, install or simulate a plugin that needs a
+   callback and confirm the watcher can rely on the returned daemon-derived
+   `route_id`.
+
+**Expected result.**
+
+- overlay-API derives plugin route IDs from
+  `(username, plugin_id, hostname_hint)`.
+- Repeating the same tuple is idempotent and does not create duplicate routes.
+- Updating the local port for the same tuple updates the existing route.
+- A different hostname hint creates a separate deterministic route.
+
+**If the test exposes a gap.**
+
+- If a plugin needs multiple callbacks with the same `plugin_id` and
+  `hostname_hint`, do not switch to arbitrary client-supplied IDs. Add an
+  explicit discriminator field to the API contract, for example
+  `callback_name` or `callback_purpose`, and derive IDs from
+  `(username, plugin_id, hostname_hint, discriminator)`.
+- If OpenClaw exposes stable plugin callback IDs in Phase 7, document whether
+  that stable ID should become the explicit discriminator while the daemon still
+  owns final route ID derivation.
+- If hostname hints from real plugins are unstable, normalize them in the
+  watcher before sending the request or add a documented normalization rule to
+  overlay-API. Do not store raw unbounded strings as route identity.
+
+**Capture on failure.**
+
+- Request/response JSON with secrets redacted.
+- State DB route rows for `alice`.
+- Rendered cloudflared config before and after each call.
+- overlay-API journal logs.
