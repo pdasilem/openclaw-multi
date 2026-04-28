@@ -14,16 +14,17 @@ var ErrNotFound = errors.New("config file not found")
 
 // OverlayConfig is the structure of /etc/openclaw-multi/config.yml.
 type OverlayConfig struct {
-	Domain             string        `yaml:"domain"`
-	Subdomain          string        `yaml:"subdomain"`
-	TunnelID           string        `yaml:"tunnel_id"`
-	TunnelMode         string        `yaml:"tunnel_mode"` // "account" | "quick"
-	CloudflareZoneID   string        `yaml:"cloudflare_zone_id"`
-	CloudflareAPIToken string        `yaml:"cloudflare_api_token"`
-	PortRangeStart     int           `yaml:"port_range_start"`
-	PortRangeStep      int           `yaml:"port_range_step"`
-	NodeVersionMin     string        `yaml:"node_version_min"`
-	Notifications      Notifications `yaml:"notifications"`
+	Domain                     string        `yaml:"domain"`
+	Subdomain                  string        `yaml:"subdomain"`
+	TunnelID                   string        `yaml:"tunnel_id"`
+	TunnelMode                 string        `yaml:"tunnel_mode"` // "account" | "quick"
+	CloudflareZoneID           string        `yaml:"cloudflare_zone_id"`
+	CloudflareAPIToken         string        `yaml:"cloudflare_api_token"`
+	CloudflaredCredentialsFile string        `yaml:"cloudflared_credentials_file"`
+	PortRangeStart             int           `yaml:"port_range_start"`
+	PortRangeStep              int           `yaml:"port_range_step"`
+	NodeVersionMin             string        `yaml:"node_version_min"`
+	Notifications              Notifications `yaml:"notifications"`
 }
 
 // Notifications holds Telegram bot credentials for admin alerts.

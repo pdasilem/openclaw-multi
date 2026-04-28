@@ -76,8 +76,8 @@ The benefits:
 - **Reviewer agent**. After each PR, reviews against the task's
   acceptance criteria + general code quality. Blocks merge on hard
   failures.
-- **Verifier agent**. At end of each phase, runs the smoke test suite
-  defined in the phase doc, confirms the Definition of Done, writes a
+- **Verifier agent**. At end of each phase, verifies the E2E use-case checklist
+  defined in `docs/e2e-use-cases.md`, confirms the Definition of Done, writes a
   retrospective.
 
 These can all be the same agent in different "modes" (just clear prompt
@@ -286,12 +286,18 @@ For each task, the agent:
 
 Reviewer agent on each PR:
 
-1. Verifies all acceptance criteria of the task are met.
-2. Runs `make lint test` locally / via CI.
-3. Confirms no scope creep beyond the task.
-4. Checks the audit log emits the documented event type for any
+1. Builds an **acceptance evidence matrix** for the task:
+   acceptance criterion, implementation file(s), test or manual check, result.
+2. Verifies every acceptance criterion has concrete evidence. A green CI run is
+   supporting evidence, not a substitute for this matrix.
+3. Runs `make lint test` locally / via CI.
+4. Runs a dead-code pass for new symbols: search for each new exported
+   constant, function, type, and helper. Reject unused symbols unless they are
+   explicitly required by an interface and documented.
+5. Confirms no scope creep beyond the task.
+6. Checks the audit log emits the documented event type for any
    user-visible action added.
-5. Approves or requests changes.
+7. Approves or requests changes.
 
 After merge, the implementer agent updates the phase doc task status
 to `completed` with PR link and commit SHA.
@@ -300,10 +306,15 @@ to `completed` with PR link and commit SHA.
 
 Verifier agent at end of phase:
 
-1. Runs the **Phase smoke test suite** declared in the phase doc.
-2. Confirms every task is `completed`.
-3. Confirms every Definition of Done item is checked.
-4. Creates a git tag `v0.<N>.0` — **no GitHub Release** until owner explicitly requests one.
+1. Confirms the phase's E2E use cases are documented in
+   `docs/e2e-use-cases.md` and runs only checks that the owner explicitly
+   asked the agent to run.
+2. Confirms every task is `completed` only after reviewing the task's
+   acceptance evidence matrix.
+3. Confirms every Definition of Done item has evidence.
+4. Confirms audit events added in the phase are both declared and emitted by
+   code paths covered by tests or explicit E2E steps.
+5. Creates a git tag `v0.<N>.0` — **no GitHub Release** until owner explicitly requests one.
 
 If any DoD item fails — phase is **not** complete; new tasks are added
 to the phase doc (with owner's re-approval).
@@ -437,17 +448,22 @@ prior_retros: [<list of phase-N-retro.md filenames consumed>]
 ## 6. Definition of Done for the phase
 
 - [ ] All tasks T01..TNN have status `completed`
-- [ ] All acceptance criteria checked
+- [ ] All acceptance criteria checked with an evidence matrix
 - [ ] `make ci` passes on `main`
-- [ ] Phase smoke test suite (§7) passes end-to-end
+- [ ] New exported constants/functions/types/helpers are used, tested, or
+      explicitly documented as interface surface
+- [ ] New audit event types are emitted by real code paths and covered by tests
+      or owner-run E2E steps
+- [ ] Phase E2E use cases are documented in `docs/e2e-use-cases.md`
 - [ ] Documentation deliverables (§8) merged
 - [ ] Release `v0.<N>.0` tagged
 - [ ] Retrospective `docs/phases/phase-<N>-retro.md` written
 
-## 7. Phase smoke test suite
+## 7. Phase E2E use cases
 
-End-to-end tests that prove the phase works. Each test is a script in
-`test/e2e/phase-<N>/` and must be runnable as `make test-phase-<N>`.
+End-to-end checks that prove the phase works. They are written as manual or
+owner-run use cases in `docs/e2e-use-cases.md`: preconditions, steps, expected
+result, and capture-on-failure.
 
 | Test | What it proves |
 | ---- | -------------- |
@@ -522,6 +538,12 @@ Every user-visible action (TUI menu choice that mutates state, API
 call that writes anywhere, any `sudo` invocation) **must** emit a JSONL
 entry as defined in master plan §12 OQ-1. The reviewer agent rejects
 PRs that introduce mutating actions without audit log calls.
+
+Adding an audit action constant is not enough. The review must show:
+
+- the code path that emits it;
+- the test or E2E step that observes it;
+- the expected `action`, `result`, `actor`, and `target` fields.
 
 ---
 

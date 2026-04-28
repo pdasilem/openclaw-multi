@@ -11,8 +11,8 @@ UFW operations require an explicit review step before apply.
 - Cloudflare Tunnel remains the public inbound path. The VPS only needs
   outbound connectivity for `cloudflared`.
 - Phase 5 does not regenerate `/etc/cloudflared/config.yml`, reload
-  `cloudflared`, restart services, or publish per-user ingress routes. That is
-  Phase 6 overlay-API work.
+  `cloudflared`, restart services, or publish per-user ingress routes. Phase 6
+  implements that path in `openclaw-overlay-api`.
 - Tests never call live Tailscale, cloudflared, UFW, DNS, curl, ping, or
   Cloudflare APIs. All system commands use `shell.Executor`; DNS uses an
   injectable client.

@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## v0.6.0 - 2026-04-28
+
+### Added
+- `openclaw-overlay-api` daemon on a UNIX socket with health, route, enable,
+  disable, last-seen, and cloudflared reload endpoints.
+- `internal/api` with JSON contracts, peer credential authorization, UNIX socket
+  listener, route service, and client implementing the route publisher shape.
+- `internal/cloudflared` with deterministic local tunnel config rendering,
+  credentials-file resolution, validation, SIGHUP, backup, and rollback.
+- Config field `cloudflared_credentials_file`.
+- Audit actions `overlay_api_request`, `cloudflared_config_publish`, and
+  `cloudflared_sighup`.
+- `docs/overlay-api.md` and Phase 6 owner-run E2E cases.
+
 ## v0.5.0 - 2026-04-25
 
 ### Added

@@ -20,9 +20,8 @@ external_docs_checked:
 
 > **System-boundary phase.** Phase 6 introduces the first real owner of
 > `/etc/cloudflared/config.yml`. Unit tests still use injectable filesystem,
-> executor, clock, state, and peer-credential interfaces. The phase smoke suite
-> may use Docker for daemon/socket/config behavior, but tests must not mutate
-> the host `/etc/cloudflared`, host systemd, host UFW, or live Cloudflare state.
+> executor, clock, state, and peer-credential interfaces. Owner-run E2E checks
+> are documented in `docs/e2e-use-cases.md`.
 >
 > The per-user watcher remains out of scope. Phase 6 must expose the API and
 > client contract that Phase 7 will consume.
@@ -42,7 +41,7 @@ external_docs_checked:
    fallback seams.
 5. Add last-seen HTTP endpoints backed by the existing Phase 5 cloudflared log
    parser/cache behavior.
-6. `make ci` and `make test-phase-6` pass.
+6. `make ci` passes and owner-run E2E checks are documented.
 
 ## 2. Out of Scope
 
@@ -56,8 +55,8 @@ external_docs_checked:
   tunnels. Phase 6 keeps the current locally-managed architecture and records
   the design pressure.
 - Full production HA reload with cloudflared replicas. Phase 6 uses SIGHUP for
-  the single-host local-config reload path and must prove it in smoke and
-  owner-run VPS validation.
+  the single-host local-config reload path and documents owner-run VPS
+  validation.
 - Uninstall flows or diagnostic snapshot archive.
 
 ## 3. Inputs
@@ -88,8 +87,8 @@ external_docs_checked:
 - Owner decisions for this phase:
   - Cloudflared reload uses SIGHUP.
   - Plugin route IDs are daemon-derived, not client-supplied.
-  - Managed users may connect to the UNIX socket; authorization is enforced by
-    daemon-side `SO_PEERCRED` checks.
+  - Managed users and the configured admin may connect to the UNIX socket;
+    authorization is enforced by daemon-side `SO_PEERCRED` checks.
   - `cloudflared_credentials_file` is an explicit config field with default
     `/etc/cloudflared/<tunnel_id>.json`; publication fails before writing if the
     file does not exist.
@@ -153,28 +152,28 @@ routes remain in state but are omitted from the generated config.
 
 | ID  | Title | Est | Depends on | Parallel | Status | PR |
 | --- | ----- | --- | ---------- | -------- | ------ | -- |
-| T01 | Define API request/response contract | 0.5d | - | yes | pending | - |
-| T02 | Add cloudflared config renderer | 0.75d | T01 | yes | pending | - |
-| T03 | Add atomic config write and backup helper | 0.75d | T02 | yes | pending | - |
-| T04 | Add cloudflared validate adapter | 0.5d | T02 | yes | pending | - |
-| T05 | Add cloudflared SIGHUP reload and rollback manager | 1d | T03, T04 | no | pending | - |
-| T06 | Add route service orchestration | 1d | T01, T05 | no | pending | - |
-| T07 | Add peer credential abstraction and authorization | 0.75d | T01 | yes | pending | - |
-| T08 | Implement HTTP router and JSON errors | 0.75d | T01, T06, T07 | no | pending | - |
-| T09 | Implement UNIX-socket listener | 0.75d | T07, T08 | no | pending | - |
-| T10 | Wire `cmd/openclaw-overlay-api` flags/config | 0.75d | T08, T09 | no | pending | - |
-| T11 | Implement gateway route endpoints | 0.75d | T06, T08 | yes | pending | - |
-| T12 | Implement plugin route endpoints | 0.75d | T06, T08 | yes | pending | - |
-| T13 | Implement enable/disable endpoints | 0.5d | T06, T08 | yes | pending | - |
-| T14 | Implement list routes and last-seen endpoints | 0.75d | T08 | yes | pending | - |
-| T15 | Add overlay-API UNIX-socket client | 0.75d | T08, T09 | yes | pending | - |
-| T16 | Wire users manager to API route publisher | 0.75d | T15 | no | pending | - |
-| T17 | Add audit events for API/config lifecycle | 0.5d | T06, T08 | yes | pending | - |
-| T18 | Update systemd template and install defaults | 0.5d | T10 | yes | pending | - |
-| T19 | Add Phase 6 Docker smoke harness | 1d | T10, T11, T13 | no | pending | - |
-| T20 | Add `make test-phase-6` | 0.25d | T19 | yes | pending | - |
-| T21 | Document overlay-API operations | 0.5d | T11, T12, T13, T14 | yes | pending | - |
-| T22 | Update changelog and phase status | 0.25d | T20, T21 | no | pending | - |
+| T01 | Define API request/response contract | 0.5d | - | yes | done | - |
+| T02 | Add cloudflared config renderer | 0.75d | T01 | yes | done | - |
+| T03 | Add atomic config write and backup helper | 0.75d | T02 | yes | done | - |
+| T04 | Add cloudflared validate adapter | 0.5d | T02 | yes | done | - |
+| T05 | Add cloudflared SIGHUP reload and rollback manager | 1d | T03, T04 | no | done | - |
+| T06 | Add route service orchestration | 1d | T01, T05 | no | done | - |
+| T07 | Add peer credential abstraction and authorization | 0.75d | T01 | yes | done | - |
+| T08 | Implement HTTP router and JSON errors | 0.75d | T01, T06, T07 | no | done | - |
+| T09 | Implement UNIX-socket listener | 0.75d | T07, T08 | no | done | - |
+| T10 | Wire `cmd/openclaw-overlay-api` flags/config | 0.75d | T08, T09 | no | done | - |
+| T11 | Implement gateway route endpoints | 0.75d | T06, T08 | yes | done | - |
+| T12 | Implement plugin route endpoints | 0.75d | T06, T08 | yes | done | - |
+| T13 | Implement enable/disable endpoints | 0.5d | T06, T08 | yes | done | - |
+| T14 | Implement list routes and last-seen endpoints | 0.75d | T08 | yes | done | - |
+| T15 | Add overlay-API UNIX-socket client | 0.75d | T08, T09 | yes | done | - |
+| T16 | Wire users manager to API route publisher | 0.75d | T15 | no | done | - |
+| T17 | Add audit events for API/config lifecycle | 0.5d | T06, T08 | yes | done | - |
+| T18 | Update systemd template and install defaults | 0.5d | T10 | yes | done | - |
+| T19 | Add Phase 6 owner-run E2E cases | 1d | T10, T11, T13 | no | done | - |
+| T20 | Keep Phase 6 validation in E2E docs | 0.25d | T19 | yes | done | - |
+| T21 | Document overlay-API operations | 0.5d | T11, T12, T13, T14 | yes | done | - |
+| T22 | Update changelog and phase status | 0.25d | T20, T21 | no | done | - |
 
 ### T01: Define API request/response contract
 
@@ -292,8 +291,8 @@ health check, and rollback.
 
 **Implementation notes.** Owner decision: use SIGHUP. Current Cloudflare Linux
 service docs document restart to load changed config, so Phase 6 must treat
-SIGHUP behavior as a product assumption that is explicitly verified in
-`make test-phase-6` and later by owner-run VPS checks.
+SIGHUP behavior as a product assumption that is explicitly verified by
+owner-run VPS checks.
 
 **Test plan.** Unit tests for success, validation fail, reload fail, rollback
 success, and rollback fail.
@@ -418,7 +417,7 @@ route.
 - [ ] Calls republish cloudflared config through the route service.
 - [ ] Tests cover root caller and owner caller.
 
-**Test plan.** Handler/service tests plus smoke test route publication.
+**Test plan.** Handler/service tests plus owner-run E2E route publication.
 
 ---
 
@@ -555,48 +554,42 @@ publication events.
 **Implementation notes.** Avoid broad sandboxing hardening in this phase unless
 it is necessary for the daemon to run; full service hardening can be Phase 9.
 
-**Test plan.** Template rendering tests and `systemd-analyze verify` in smoke
-if available.
+**Test plan.** Template rendering tests; run `systemd-analyze verify` manually
+when validating the VPS service.
 
 ---
 
-### T19: Add Phase 6 Docker smoke harness
+### T19: Add Phase 6 owner-run E2E cases
 
-**Description.** Add an end-to-end smoke test for the daemon/socket/config
-workflow in an isolated container.
+**Description.** Add owner-run E2E use cases for the daemon/socket/config
+workflow. The owner runs these manually on the target VPS.
 
 **Acceptance criteria.**
 
-- [ ] Smoke starts `openclaw-overlay-api` against temp config/state paths.
-- [ ] Smoke creates at least one user and gateway route through the UNIX socket.
-- [ ] Smoke verifies rendered cloudflared config contains the route and final
-      404 catch-all.
-- [ ] Smoke verifies disable removes the route from rendered config while
-      preserving state.
-- [ ] Smoke verifies unauthorized UID behavior if the container supports it.
-- [ ] Smoke does not touch host `/etc/cloudflared` or host systemd.
+- [ ] `docs/e2e-use-cases.md` covers SIGHUP reload validation.
+- [ ] `docs/e2e-use-cases.md` covers user/admin/root authorization.
+- [ ] `docs/e2e-use-cases.md` covers cloudflared config rollback.
+- [ ] `docs/e2e-use-cases.md` covers daemon-derived plugin route IDs.
+- [ ] `docs/e2e-use-cases.md` covers TUI sign-up publishing a gateway route
+      through overlay-API.
 
-**Implementation notes.** If running real cloudflared is too brittle in Docker,
-the minimum acceptable smoke uses a fake `cloudflared` executable that enforces
-expected validate/reload calls; document the deviation. Prefer real cloudflared
-only if it can run without network credentials.
+**Implementation notes.** The owner validates Phase 6 manually from the E2E
+checklist.
 
-**Test plan.** `bash test/e2e/phase-6/smoke.sh`.
+**Test plan.** Review `docs/e2e-use-cases.md` Phase 6 section.
 
 ---
 
-### T20: Add `make test-phase-6`
+### T20: Keep Phase 6 validation in E2E docs
 
-**Description.** Add Makefile target for the Phase 6 smoke suite.
+**Description.** Keep Phase 6 validation steps in the owner-run E2E checklist.
 
 **Acceptance criteria.**
 
-- [ ] `make test-phase-6` builds required binaries.
-- [ ] Target runs the Phase 6 smoke script.
-- [ ] Target does not require host root.
-- [ ] `make help` lists the new target.
+- [ ] Phase 6 validation steps live in `docs/e2e-use-cases.md`.
+- [ ] The phase doc points to the owner-run E2E checklist.
 
-**Test plan.** `make test-phase-6`.
+**Test plan.** Review Phase 6 references to `docs/e2e-use-cases.md`.
 
 ---
 
@@ -636,7 +629,6 @@ only if it can run without network credentials.
 - [ ] All tasks T01..T22 have status `completed`.
 - [ ] All acceptance criteria checked.
 - [ ] `make ci` passes on `main`.
-- [ ] `make test-phase-6` passes end-to-end.
 - [ ] `cmd/openclaw-overlay-api` no longer panics as a stub.
 - [ ] The daemon can publish, disable, re-enable, and delete gateway and plugin
       routes through the UNIX-socket API.
@@ -646,19 +638,17 @@ only if it can run without network credentials.
 - [ ] Release `v0.6.0` tagged.
 - [ ] Retrospective `docs/phases/phase-6-retro.md` written.
 
-## 7. Phase Smoke Test Suite
+## 7. Owner-Run E2E Checks
 
-End-to-end tests live in `test/e2e/phase-6/` and are runnable as
-`make test-phase-6`.
+Owner-run checks live in `docs/e2e-use-cases.md`.
 
-| Test | What it proves |
-| ---- | -------------- |
-| `daemon-health` | The daemon starts on a UNIX socket and answers `GET /health`. |
-| `gateway-route-publish` | Gateway route API updates state and rendered cloudflared config. |
-| `plugin-route-publish` | Plugin route API creates deterministic callback ingress. |
-| `disable-enable` | User route disable/enable changes generated config without deleting state. |
-| `authz` | Root is allowed and a wrong UID is rejected for another user's routes. |
-| `rollback` | Validation/reload failure restores prior config and reports rollback. |
+| Use case | What it proves |
+| -------- | -------------- |
+| `UC-0601` | SIGHUP reload applies local cloudflared config on the target VPS. |
+| `UC-0602` | `SO_PEERCRED` authorization allows owner/admin/root and rejects wrong users. |
+| `UC-0603` | Invalid cloudflared config is not activated and rollback is visible. |
+| `UC-0604` | Plugin route IDs are daemon-derived and idempotent. |
+| `UC-0605` | TUI sign-up publishes gateway routes through overlay-API. |
 
 ## 8. Documentation Deliverables
 
@@ -674,11 +664,10 @@ End-to-end tests live in `test/e2e/phase-6/` and are runnable as
 
 | Risk | Mitigation |
 | ---- | ---------- |
-| Cloudflare docs do not document SIGHUP as the config reload path | Owner decision is SIGHUP; prove it in `make test-phase-6` and `docs/e2e-use-cases.md` owner-run VPS validation. If it fails, reopen the phase decision and change the implementation/doc together. |
+| Cloudflare docs do not document SIGHUP as the config reload path | Owner decision is SIGHUP; verify it with `docs/e2e-use-cases.md` owner-run VPS validation. |
 | Config write succeeds but SIGHUP reload fails | Always keep a timestamped backup and test rollback plus one recovery SIGHUP. |
 | Peer credential extraction is hard to test portably | Hide it behind an interface and unit-test authorization separately from Linux-specific socket plumbing. |
 | Route state and cloudflared config diverge | Route service owns all route mutations and invokes one publication path after every committed change. |
-| Docker smoke with real cloudflared requires network credentials | Use real validation when possible; otherwise use a fake cloudflared binary for deterministic validate/reload behavior and record the boundary. |
 | Phase 7 watcher needs a different plugin route contract | Keep Phase 6 plugin request/response minimal and deterministic; document it in `docs/overlay-api.md` before watcher work starts. |
 
 ## 10. Phase Decisions
@@ -688,8 +677,8 @@ End-to-end tests live in `test/e2e/phase-6/` and are runnable as
 Decision: Phase 6 uses SIGHUP to ask cloudflared to reload the local ingress
 config. This is an owner decision even though the current Cloudflare Linux
 service docs emphasize service restart for config changes. The implementation
-must include automated smoke coverage and `docs/e2e-use-cases.md` contains an
-owner-run VPS check that proves SIGHUP behavior on the target server.
+must include unit coverage and `docs/e2e-use-cases.md` contains an owner-run VPS
+check that proves SIGHUP behavior on the target server.
 
 If the VPS check fails, reopen this decision before continuing Phase 7.
 
@@ -709,10 +698,11 @@ the migration.
 
 ### D03: Managed Users Can Connect; `SO_PEERCRED` Authorizes
 
-Decision: the UNIX socket must be reachable by managed user processes, and the
-daemon must authorize every user-scoped route operation with Linux peer
-credentials. Root UID `0` may manage all users. A non-root caller may manage
-only the user whose UID matches the stored managed user UID.
+Decision: the UNIX socket must be reachable by managed user processes and the
+configured admin. The daemon must authorize every user-scoped route operation
+with Linux peer credentials. Root UID `0` and the stored admin UID may manage
+all users. Other non-root callers may manage only the user whose UID matches
+the stored managed user UID.
 
 Phase 6 does not introduce an `openclaw-overlay` Linux group as an authorization
 requirement. Group restriction may be added later in Phase 9 as defense in

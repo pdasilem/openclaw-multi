@@ -510,6 +510,10 @@ or already had OpenClaw/cloudflared/Tailscale state.
    `curl -vk https://gateway-alice.<subdomain>.<domain>/`.
 7. Disable the route through overlay-API, send SIGHUP again, and request the
    same URL.
+8. Record cloudflared version:
+   `cloudflared --version`.
+9. Record cloudflared service unit:
+   `systemctl cat cloudflared`.
 
 **Expected result.**
 
@@ -518,12 +522,16 @@ or already had OpenClaw/cloudflared/Tailscale state.
 - Newly added route becomes reachable after SIGHUP.
 - Disabled route stops reaching Alice's gateway after SIGHUP and falls through
   to the catch-all behavior.
+- Recorded version and service unit identify the exact cloudflared target that
+  was tested.
 
 **Capture on failure.**
 
 - `/etc/cloudflared/config.yml` before/after with secrets redacted.
 - `journalctl -u cloudflared --no-pager -n 300`.
 - `systemctl status cloudflared`.
+- `cloudflared --version`.
+- `systemctl cat cloudflared`.
 - `curl -vk` output for enabled and disabled route.
 
 ### UC-0602: Overlay-API Rejects Wrong User UID
@@ -541,12 +549,14 @@ or already had OpenClaw/cloudflared/Tailscale state.
 
 1. As `alice`, call a route endpoint for `alice`.
 2. As `alice`, call the same route endpoint for `bob`.
-3. As root, call the route endpoint for `bob`.
+3. As the configured admin, call the route endpoint for `bob`.
+4. As root, call the route endpoint for `bob`.
 
 **Expected result.**
 
 - Alice can manage Alice's allowed route operations.
 - Alice receives authorization failure for Bob's routes.
+- The configured admin can manage Bob's routes.
 - Root can manage Bob's routes.
 
 **Capture on failure.**
@@ -612,9 +622,8 @@ or already had OpenClaw/cloudflared/Tailscale state.
 7. Call the endpoint with the same `plugin_id` but a different
    `hostname_hint`, for example `oauth`.
 8. Verify a second deterministic route is created for the new hint.
-9. After Phase 7 watcher exists, install or simulate a plugin that needs a
-   callback and confirm the watcher can rely on the returned daemon-derived
-   `route_id`.
+9. Verify both plugin routes are present in `/etc/cloudflared/config.yml` after
+   publication.
 
 **Expected result.**
 
@@ -623,20 +632,7 @@ or already had OpenClaw/cloudflared/Tailscale state.
 - Repeating the same tuple is idempotent and does not create duplicate routes.
 - Updating the local port for the same tuple updates the existing route.
 - A different hostname hint creates a separate deterministic route.
-
-**If the test exposes a gap.**
-
-- If a plugin needs multiple callbacks with the same `plugin_id` and
-  `hostname_hint`, do not switch to arbitrary client-supplied IDs. Add an
-  explicit discriminator field to the API contract, for example
-  `callback_name` or `callback_purpose`, and derive IDs from
-  `(username, plugin_id, hostname_hint, discriminator)`.
-- If OpenClaw exposes stable plugin callback IDs in Phase 7, document whether
-  that stable ID should become the explicit discriminator while the daemon still
-  owns final route ID derivation.
-- If hostname hints from real plugins are unstable, normalize them in the
-  watcher before sending the request or add a documented normalization rule to
-  overlay-API. Do not store raw unbounded strings as route identity.
+- Both plugin routes are rendered into cloudflared config with unique hostnames.
 
 **Capture on failure.**
 
@@ -644,3 +640,58 @@ or already had OpenClaw/cloudflared/Tailscale state.
 - State DB route rows for `alice`.
 - Rendered cloudflared config before and after each call.
 - overlay-API journal logs.
+
+### UC-0605: Sign-up Publishes Gateway Route Through Overlay-API
+
+- Phase: 6
+- Scenario type: `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- Phase 6 overlay-API is installed and running.
+- `cloudflared.service` is active.
+- Wildcard DNS points at the tunnel.
+- Test username `alice-signup` does not exist, or has been fully removed with a
+  backup/snapshot captured first.
+
+**Steps.**
+
+1. Start the admin TUI as the configured admin.
+2. Create managed user `alice-signup` through the normal sign-up/user creation
+   flow.
+3. Confirm the created user's gateway service is running locally.
+4. Confirm state has an enabled gateway route for `alice-signup`.
+5. Confirm `/etc/cloudflared/config.yml` contains
+   `gateway-alice-signup.<subdomain>.<domain>` and the final
+   `http_status:404` rule.
+6. Confirm overlay-API audit contains config publication and SIGHUP events.
+7. Request `https://gateway-alice-signup.<subdomain>.<domain>/`.
+8. Disable the user through the TUI.
+9. Confirm the route remains in state but is disabled and omitted from the
+   rendered cloudflared config.
+10. Send or confirm overlay-API SIGHUP reload and request the same URL again.
+11. Confirm overlay-API and cloudflared logs for the publication and reload:
+    `journalctl -u openclaw-overlay-api --no-pager -n 300` and
+    `journalctl -u cloudflared --no-pager -n 300`.
+
+**Expected result.**
+
+- Sign-up creates the managed user and publishes the gateway route through
+  overlay-API, not by directly editing cloudflared config from the TUI.
+- The public gateway URL reaches the user's local gateway after publication and
+  reload.
+- Disabling the user removes the active ingress rule from cloudflared config and
+  the public URL no longer reaches the user's gateway.
+- Overlay-API and cloudflared logs contain the expected publication and reload
+  entries without errors.
+
+**Capture on failure.**
+
+- TUI action log or terminal output.
+- overlay-API response, if visible in the TUI or terminal.
+- `journalctl -u openclaw-overlay-api --no-pager -n 300`.
+- `journalctl -u cloudflared --no-pager -n 300`.
+- Rendered cloudflared config with secrets redacted.
+- State DB route row for `alice-signup`.
+- `curl -vk` output for enabled and disabled URL.

@@ -50,14 +50,21 @@ New tasks may only be added to a phase document with the owner's approval.
 - [ ] Branch name matches `phase-<N>/<task-id>-<slug>`
 - [ ] Commit message matches `phase-<N>/<task-id>: <subject>`
 - [ ] PR description uses the PULL_REQUEST_TEMPLATE
-- [ ] All acceptance criteria from the phase doc task are checked
+- [ ] All acceptance criteria from the phase doc task are checked with an
+      evidence matrix
 - [ ] `make ci` passes locally
+- [ ] New exported constants/functions/types/helpers are used, tested, or
+      explicitly documented as interface surface
+- [ ] New audit event types are emitted by real code paths and covered by tests
+      or owner-run E2E steps
 - [ ] No scope creep beyond the task
 
 ## Code review expectations
 
 Reviewer checks:
-1. All task acceptance criteria met.
+1. All task acceptance criteria have concrete evidence.
 2. `make lint test` passes.
-3. No scope creep.
-4. Any mutating action emits an audit log event.
+3. New symbols are not dead code.
+4. No scope creep.
+5. Any mutating action emits an audit log event, not just an unused event
+   constant.

@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/pdasilem/openclaw-multi/internal/admin"
+	"github.com/pdasilem/openclaw-multi/internal/api"
 	"github.com/pdasilem/openclaw-multi/internal/audit"
 	"github.com/pdasilem/openclaw-multi/internal/backup"
 	"github.com/pdasilem/openclaw-multi/internal/config"
@@ -265,7 +266,11 @@ func Run() error {
 	}
 	exec := &shell.RealExecutor{Logger: logger}
 	fs := shell.RealFS{}
-	userManager := userops.NewManager(store, exec, fs, cfg, nil, logger)
+	socketPath := os.Getenv("OPENCLAW_OVERLAY_SOCKET")
+	if socketPath == "" {
+		socketPath = api.DefaultSocketPath
+	}
+	userManager := userops.NewManager(store, exec, fs, cfg, api.Client{SocketPath: socketPath}, logger)
 	userManager.TemplateDir = "/opt/openclaw-multi/templates"
 	backupManager := backup.NewManager(store, exec, fs, logger, backup.Options{TemplateDir: "/opt/openclaw-multi/templates"})
 	userManager.BeforeRemove = backupManager

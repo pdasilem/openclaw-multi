@@ -16,7 +16,7 @@ without modifying the OpenClaw core.
 openclaw-multi          Admin TUI (Bubble Tea). Run by the admin in SSH.
 openclaw-overlay-api    System daemon (HTTP on UNIX socket). Manages cloudflared
                         config and is the only component that can write to
-                        /etc/cloudflared/config.yml. (Phase 6)
+                        /etc/cloudflared/config.yml.
 openclaw-overlay-watcher  Per-user daemon. Watches ~/.openclaw/openclaw.json
                           via inotify and calls overlay-api to publish routes.
                           (Phase 7)

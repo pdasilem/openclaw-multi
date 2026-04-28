@@ -6,7 +6,8 @@ Requires=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/local/bin/openclaw-overlay-api
+RuntimeDirectory=openclaw-multi
+ExecStart=/usr/local/bin/openclaw-overlay-api --config /etc/openclaw-multi/config.yml --state /var/lib/openclaw-multi/state.db --socket /run/openclaw-overlay.sock --cloudflared-config /etc/cloudflared/config.yml --audit-log /var/log/openclaw-multi/audit.log
 Restart=always
 RestartSec=5
 StandardOutput=journal
