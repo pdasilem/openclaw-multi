@@ -34,12 +34,10 @@ func NewFreshInstallSteps(d Deps) []Step {
 	h := &hardening.Hardener{Exec: d.Exec, FS: d.FS, Logger: d.Logger}
 	return []Step{
 		&StepPreFlight{exec: d.Exec},
-		&StepNode{exec: d.Exec, cfg: d.Cfg},
 		&StepTailscale{exec: d.Exec, interactive: d.Interactive},
 		&StepCloudflared{exec: d.Exec, fs: d.FS, renderer: renderer, cfg: d.Cfg},
 		&StepUFW{exec: d.Exec},
 		&StepHardening{h: h},
-		&StepOpenClaw{exec: d.Exec},
 		&StepOverlayAPI{exec: d.Exec, fs: d.FS, renderer: renderer},
 		&StepAddUserInfo{},
 		&StepSummary{store: d.Store, logger: d.Logger},
@@ -70,30 +68,7 @@ func (s *StepPreFlight) Run(ctx context.Context) error {
 	return nil
 }
 
-// --- Step 2: Node.js ---
-
-// StepNode ensures Node.js >= minVersion is installed.
-type StepNode struct {
-	exec   shell.Executor
-	cfg    *config.OverlayConfig
-	Status deps.NodeStatus
-}
-
-func (s *StepNode) Name() string { return "Install Node.js" }
-func (s *StepNode) Run(ctx context.Context) error {
-	min := s.cfg.NodeVersionMin
-	if min == "" {
-		min = "22.16.0"
-	}
-	status, err := deps.EnsureNode(ctx, s.exec, min)
-	if err != nil {
-		return fmt.Errorf("node: %w", err)
-	}
-	s.Status = status
-	return nil
-}
-
-// --- Step 3: Tailscale ---
+// --- Step 2: Tailscale ---
 
 // StepTailscale installs and verifies Tailscale.
 type StepTailscale struct {
@@ -112,7 +87,7 @@ func (s *StepTailscale) Run(ctx context.Context) error {
 	return nil
 }
 
-// --- Step 4: Cloudflared ---
+// --- Step 3: Cloudflared ---
 
 // StepCloudflared installs and configures Cloudflare Tunnel.
 type StepCloudflared struct {
@@ -173,28 +148,7 @@ func (s *StepHardening) Run(ctx context.Context) error {
 	return nil
 }
 
-// --- Step 7: OpenClaw global install ---
-
-// StepOpenClaw installs openclaw globally via npm.
-type StepOpenClaw struct {
-	exec    shell.Executor
-	Version string // populated after Run
-}
-
-func (s *StepOpenClaw) Name() string { return "Install OpenClaw (npm i -g)" }
-func (s *StepOpenClaw) Run(ctx context.Context) error {
-	if _, err := s.exec.Run(ctx, shell.ExecOpts{
-		Cmd:  []string{"npm", "install", "-g", "openclaw@latest"},
-		Sudo: true,
-	}); err != nil {
-		return fmt.Errorf("npm install openclaw: %w", err)
-	}
-	res, _ := s.exec.Run(ctx, shell.ExecOpts{Cmd: []string{"openclaw", "--version"}})
-	s.Version = res.Stdout
-	return nil
-}
-
-// --- Step 8: Overlay-API stub service ---
+// --- Step 7: Overlay-API stub service ---
 
 // StepOverlayAPI installs the overlay-API systemd unit.
 type StepOverlayAPI struct {

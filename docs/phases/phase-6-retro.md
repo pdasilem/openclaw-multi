@@ -69,9 +69,8 @@ runs; otherwise golangci-lint attempts to write under `/home/pdasilem/.cache`.
 
 - During VPS validation, run the E2E use cases for sign-up/gateway publication
   and explicitly confirm cloudflared accepts SIGHUP without a systemd restart.
-- Add the real VPS outcome to `docs/e2e-use-cases.md`: either keep SIGHUP as the
-  operational reload path or document the exact fallback to
-  `systemctl restart cloudflared`.
+- Add the real VPS outcome to `docs/e2e-use-cases.md`: keep SIGHUP as the
+  operational reload path only after VPS evidence confirms it.
 - Phase 7 watcher should call plugin route endpoints and rely on daemon-derived
   route IDs instead of sending client-owned route IDs.
 - Phase 8 should own live log tailing and any richer last-seen refresh loop.

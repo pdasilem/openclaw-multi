@@ -53,41 +53,6 @@ func TestStepPreFlight_Fail(t *testing.T) {
 	}
 }
 
-// --- StepNode ---
-
-func TestStepNode_Skip(t *testing.T) {
-	exec := &shell.MockExecutor{
-		Responses: []shell.ExecResult{shell.OKResponse("v22.16.0\n")},
-	}
-	s := &StepNode{exec: exec, cfg: config.Defaults()}
-	if err := s.Run(context.Background()); err != nil {
-		t.Fatalf("StepNode Skip: %v", err)
-	}
-	if !s.Status.Skipped {
-		t.Error("expected Skipped=true")
-	}
-}
-
-func TestStepNode_Install(t *testing.T) {
-	exec := &shell.MockExecutor{
-		Responses: []shell.ExecResult{
-			{ExitCode: 127}, // node --version fails
-			shell.OKResponse("ubuntu\n"),
-			shell.OKResponse(""), // curl nodesource
-			shell.OKResponse(""), // apt-get install
-			shell.OKResponse("v22.16.0\n"),
-		},
-		Errors: []error{shell.ErrNonZeroExit{ExitCode: 127}, nil, nil, nil, nil},
-	}
-	s := &StepNode{exec: exec, cfg: config.Defaults()}
-	if err := s.Run(context.Background()); err != nil {
-		t.Fatalf("StepNode Install: %v", err)
-	}
-	if s.Status.Skipped {
-		t.Error("expected Skipped=false after install")
-	}
-}
-
 // --- StepTailscale ---
 
 func TestStepTailscale_AlreadyRunning(t *testing.T) {
@@ -226,24 +191,6 @@ func TestStepHardening_WritesFiles(t *testing.T) {
 	}
 	if _, err := fs.Stat("/etc/profile.d/openclaw.sh"); err != nil {
 		t.Error("expected profile file written")
-	}
-}
-
-// --- StepOpenClaw ---
-
-func TestStepOpenClaw_InstallCommand(t *testing.T) {
-	exec := &shell.MockExecutor{
-		Responses: []shell.ExecResult{
-			shell.OKResponse(""),         // npm install
-			shell.OKResponse("2026.1\n"), // openclaw --version
-		},
-	}
-	s := &StepOpenClaw{exec: exec}
-	if err := s.Run(context.Background()); err != nil {
-		t.Fatalf("StepOpenClaw: %v", err)
-	}
-	if !exec.Called("npm") {
-		t.Error("expected npm to be called")
 	}
 }
 

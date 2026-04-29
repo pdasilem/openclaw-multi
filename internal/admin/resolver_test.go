@@ -161,7 +161,7 @@ func TestResolveCandidateFallsBackToCurrentUser(t *testing.T) {
 	}
 	cur, _ := ResolveCurrent()
 	if u.Username != cur.Username {
-		t.Errorf("expected fallback to current user %q, got %q", cur.Username, u.Username)
+		t.Errorf("expected current user %q, got %q", cur.Username, u.Username)
 	}
 }
 

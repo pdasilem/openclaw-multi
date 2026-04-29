@@ -478,9 +478,9 @@ func parseDBTime(value string) time.Time {
 	return t
 }
 
-func formatOrNow(t time.Time, fallback string) string {
+func formatOrNow(t time.Time, defaultValue string) string {
 	if t.IsZero() {
-		return fallback
+		return defaultValue
 	}
 	return t.UTC().Format(time.RFC3339)
 }

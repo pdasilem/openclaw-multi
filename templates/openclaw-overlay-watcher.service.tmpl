@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-Environment=OPENCLAW_OVERLAY_API=${OVERLAY_API_ENDPOINT}
-ExecStart=/usr/local/bin/openclaw-overlay-watcher
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/local/bin/openclaw-overlay-watcher --username ${USERNAME} --config /home/${USERNAME}/.openclaw/openclaw.json --snapshot /home/${USERNAME}/.openclaw-overlay/watcher.state --socket ${OVERLAY_SOCKET}
 Restart=on-failure
 RestartSec=5s
 

@@ -209,13 +209,13 @@ Backend flow:
 3. Run:
    `su - <user> -c "openclaw doctor --json"`
 4. Parse JSON output if available.
-5. If JSON parse fails, fall back to line-based parsing for obvious
+5. If JSON parse fails, use line-based parsing for obvious
    `ok`/`warn`/`error` markers.
 6. Record one `openclaw` category result per user.
 7. Emit `doctor_run` audit event.
 
-If the real OpenClaw CLI does not support `--json`, the fallback parser becomes
-the expected path and the retro must record that deviation.
+If the real OpenClaw CLI does not support `--json`, the text parser becomes the
+expected path and the retro must record that deviation.
 
 ### TUI screen
 
@@ -510,7 +510,7 @@ users or mutate live services.
 |------|------------|
 | Phase 4 accidentally becomes Phase 5 network management | Keep network checks shallow and read-only; route/DNS/UFW management remains Phase 5 |
 | Auto-fix mutates more than intended | Fix IDs must be allowlisted and tested; no package, route, service lifecycle, user lifecycle, or credential mutation |
-| Real `openclaw doctor` output format differs | Implement JSON parser plus conservative text fallback; record real VPS deviation in retro |
+| Real `openclaw doctor` output format differs | Implement JSON parser plus conservative text parser; record real VPS deviation in retro |
 | Missing later-phase services make health look broken | Use `skipped` with clear "not implemented yet" messages where appropriate |
 | Permission checks need realistic file modes in tests | Extend test fixtures around `shell.FS.Stat`; avoid direct OS filesystem assumptions |
 | TUI becomes noisy with too many checks | Group by stable categories and render summary counts first |

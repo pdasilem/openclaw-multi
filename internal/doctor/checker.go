@@ -89,7 +89,8 @@ func (c *Checker) RunOpenClawDoctor(ctx context.Context) (Report, error) {
 			})
 			continue
 		}
-		res, err := c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"su", "-", user.Username, "-c", "openclaw doctor --json"}})
+		doctorCmd := "/home/" + user.Username + "/.local/bin/openclaw doctor --json"
+		res, err := c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"su", "-", user.Username, "-c", doctorCmd}})
 		if err != nil {
 			report.Add(CheckResult{
 				ID:       "openclaw-" + user.Username + "-doctor",
@@ -169,7 +170,7 @@ func (c *Checker) systemChecks(ctx context.Context, report *Report) {
 	report.Add(fileParseResult(c.FS, "/proc/sys/kernel/yama/ptrace_scope", "system-ptrace", "ptrace", parsePtraceScope))
 	report.Add(fileParseResult(c.FS, "/proc/mounts", "system-hidepid", "proc", parseHidepid))
 
-	for _, cmd := range []string{"openclaw", "systemctl", "loginctl", "ss"} {
+	for _, cmd := range []string{"systemctl", "loginctl", "ss"} {
 		if _, err := c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"sh", "-c", "command -v " + cmd}}); err != nil {
 			report.Add(result("system-command-"+cmd, "system", cmd, StatusWarn, cmd+" not found"))
 		} else {
@@ -181,7 +182,10 @@ func (c *Checker) systemChecks(ctx context.Context, report *Report) {
 func (c *Checker) serviceChecks(ctx context.Context, report *Report) {
 	for _, service := range []string{"tailscaled", "cloudflared", "openclaw-overlay-api"} {
 		res, err := c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"systemctl", "is-active", service}})
-		statusText := strings.TrimSpace(res.Stdout)
+		statusText := ""
+		if err == nil {
+			statusText = strings.TrimSpace(res.Stdout)
+		}
 		if err == nil && statusText == "active" {
 			report.Add(result("service-"+service, "services", service, StatusOK, service+" active"))
 			continue
@@ -201,6 +205,7 @@ func (c *Checker) userChecks(ctx context.Context, report *Report, users []state.
 			continue
 		}
 		c.checkLinger(ctx, report, user)
+		c.checkTenantRuntime(ctx, report, user)
 		c.checkUserService(ctx, report, user, "openclaw-gateway.service", "gateway")
 		c.checkUserService(ctx, report, user, "openclaw-overlay-watcher.service", "watcher")
 		c.checkPort(ctx, report, user)
@@ -218,6 +223,16 @@ func (c *Checker) checkLinger(ctx context.Context, report *Report, user state.Us
 		return
 	}
 	report.Add(result("user-"+user.Username+"-linger", "users", user.Username, StatusWarn, "linger disabled"))
+}
+
+func (c *Checker) checkTenantRuntime(ctx context.Context, report *Report, user state.User) {
+	cmd := "/home/" + user.Username + "/.local/bin/openclaw --version"
+	res, err := c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"su", "-", user.Username, "-c", cmd}})
+	if err == nil && strings.TrimSpace(res.Stdout) != "" {
+		report.Add(result("user-"+user.Username+"-openclaw", "users", user.Username, StatusOK, "tenant OpenClaw available"))
+		return
+	}
+	report.Add(result("user-"+user.Username+"-openclaw", "users", user.Username, StatusFail, "tenant OpenClaw unavailable"))
 }
 
 func (c *Checker) checkUserService(ctx context.Context, report *Report, user state.User, service, label string) {

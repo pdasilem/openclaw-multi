@@ -50,6 +50,41 @@ or already had OpenClaw/cloudflared/Tailscale state.
 - `make build` output
 - binary stderr/stdout
 
+### UC-0002: Admin Terminal Tab Is Present
+
+- Phase: 0
+- Scenario type: `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- `openclaw-multi` TUI is running.
+- Admin login/first-run setup is complete.
+
+**Steps.**
+
+1. Open each admin screen after login: main menu, fresh install, user
+   management, backup/restore, health, network/firewall, overlay publication,
+   watcher, logs, and settings.
+2. Confirm the bottom area contains a terminal tab on each screen.
+3. Open the terminal tab and run a harmless command such as `whoami`.
+4. Return from the terminal tab to the previous admin screen.
+5. Open the welcome/login screen and confirm it does not expose the terminal
+   tab.
+
+**Expected result.**
+
+- Every admin screen after login has a bottom terminal tab.
+- Welcome/login has no terminal tab.
+- The terminal tab runs commands without leaving the admin panel.
+- Returning from the terminal tab preserves the current admin screen context.
+
+**Capture on failure.**
+
+- TUI screenshot/transcript.
+- Command entered in the terminal tab.
+- Terminal tab output.
+
 ## Phase 1: Fresh Install
 
 ### UC-0101: Fresh Install on Clean VPS
@@ -61,7 +96,8 @@ or already had OpenClaw/cloudflared/Tailscale state.
 **Preconditions.**
 
 - Clean Ubuntu VPS or disposable test VPS.
-- SSH access as the intended admin user.
+- SSH access as admin user `ubuntu`.
+- Root shell is available through `su -`.
 - No production OpenClaw data on the host.
 
 **Steps.**
@@ -71,24 +107,33 @@ or already had OpenClaw/cloudflared/Tailscale state.
 3. Run menu item `1. Fresh install`.
 4. Choose the account/named Cloudflare Tunnel path when credentials are
    available.
-5. After the wizard finishes, inspect generated files:
+5. Confirm Node.js target handling: project Node.js is `24` and the VPS
+   path uses `nvm`, not a root-global Node runtime.
+6. Confirm host hardening paths exist with expected permissions:
+   `/etc/profile.d/openclaw.sh` and `/var/cache/openclaw-compile`.
+7. After the wizard finishes, inspect generated files:
    `/etc/openclaw-multi/config.yml`, `/etc/systemd/system/cloudflared.service`,
    `/etc/systemd/system/openclaw-overlay-api.service`, and overlay templates.
-6. Run `systemctl is-active tailscaled cloudflared openclaw-overlay-api`.
+8. Run `systemctl is-active tailscaled cloudflared openclaw-overlay-api`.
 
 **Expected result.**
 
 - Required packages and services are installed or reused.
 - Existing host state is not overwritten without an explicit confirmation.
 - Overlay config contains domain, subdomain, tunnel mode, and port range.
+- Overlay config defaults match the plan unless intentionally changed:
+  `port_range_start: 18789`, `port_range_step: 20`,
+  `node_version_min: 24`,
+  `openclaw_update_source: pdasilem/openclaw:latest`.
 - `cloudflared` and `openclaw-overlay-api` service states match the phase:
-  Phase 1 may install a stub service; Phase 6 must run the real daemon.
+   Phase 1 may install a stub service; Phase 6 must run the real daemon.
 
 **Capture on failure.**
 
 - Wizard transcript/screenshots.
 - `journalctl -u cloudflared -u openclaw-overlay-api --no-pager -n 200`
 - Redacted `/etc/openclaw-multi/config.yml`
+- `node --version`, `command -v node`, and nvm path evidence.
 
 ### UC-0102: Idempotent Fresh Install Rerun
 
@@ -106,6 +151,8 @@ or already had OpenClaw/cloudflared/Tailscale state.
 2. Choose to reuse existing installed components.
 3. Decline any destructive overwrite prompts unless intentionally testing
    overwrite behavior.
+4. Confirm existing Tailscale identity remains unchanged with `tailscale status`.
+5. Confirm existing `/etc/cloudflared/config.yml` is backed up before overwrite.
 
 **Expected result.**
 
@@ -139,15 +186,31 @@ or already had OpenClaw/cloudflared/Tailscale state.
 2. Add a user named `alice`.
 3. Check Linux user state with `id alice`.
 4. Check linger with `loginctl show-user alice -p Linger`.
-5. Check user services with
-   `sudo -iu alice systemctl --user status openclaw-gateway`.
-6. Inspect route state in `state.db` or through the TUI route list.
+5. Switch only through root shell into tenant context: `su - alice`.
+6. Confirm `node --version` reports major version `24` and comes from Alice's
+   `nvm` path.
+7. Confirm OpenClaw CLI wrapper exists inside tenant:
+   `test -x /home/alice/.local/bin/openclaw`.
+8. Confirm non-interactive onboarding ran inside tenant with daemon install:
+   `/home/alice/.local/bin/openclaw doctor` and
+   `systemctl --user status openclaw-gateway`.
+9. Confirm gateway config received overlay env decisions:
+   `OPENCLAW_GATEWAY_PORT`, `OPENCLAW_GATEWAY_TOKEN`, and
+   `OPENCLAW_GATEWAY_BIND=loopback` are reflected in generated OpenClaw config
+   or service environment without exposing token value in shared evidence.
+10. Inspect route state in `state.db` or through the TUI route list.
+11. Confirm TUI shows the public gateway URL and generated token to the admin.
 
 **Expected result.**
 
 - User `alice` exists.
 - Linger is enabled.
 - OpenClaw gateway service is installed/running for the user.
+- OpenClaw onboarding is non-interactive and is not run as root or admin
+  `ubuntu`; it runs as `alice`.
+- Tenant uses Node.js major version `24` through `nvm`.
+- OpenClaw CLI source is `pdasilem/openclaw:latest` unless
+  `openclaw_update_command` was changed in overlay settings.
 - Gateway URL has the form
   `https://gateway-alice.<subdomain>.<domain>`.
 - Before Phase 6, the route is state-only. After Phase 6, cloudflared config
@@ -157,6 +220,7 @@ or already had OpenClaw/cloudflared/Tailscale state.
 
 - TUI transcript/screenshots.
 - `journalctl --user -u openclaw-gateway` for `alice`
+- `su - alice -c 'node --version; command -v node; test -x ~/.local/bin/openclaw; ~/.local/bin/openclaw doctor'`
 - Relevant rows from state DB with tokens redacted.
 
 ### UC-0202: Deactivate and Reactivate Managed User
@@ -191,7 +255,7 @@ or already had OpenClaw/cloudflared/Tailscale state.
 **Capture on failure.**
 
 - `loginctl show-user alice -p Linger`
-- `sudo -iu alice systemctl --user status openclaw-gateway openclaw-overlay-watcher`
+- `su - alice -c 'systemctl --user status openclaw-gateway openclaw-overlay-watcher'`
 - `curl -vk https://gateway-alice.<subdomain>.<domain>/`
 
 ### UC-0203: Remove User Is Backup-First and Frees Port
@@ -320,7 +384,7 @@ or already had OpenClaw/cloudflared/Tailscale state.
 
 - TUI screenshot/transcript.
 - `journalctl -u openclaw-overlay-api -u cloudflared --no-pager -n 100`
-- `sudo -iu <user> openclaw doctor --json`
+- `su - <user> -c '/home/<user>/.local/bin/openclaw doctor --json'`
 
 ### UC-0402: Apply Allowed Permission Fix
 
@@ -502,17 +566,20 @@ or already had OpenClaw/cloudflared/Tailscale state.
    `gateway-alice.<subdomain>.<domain>` to Alice's local gateway port.
 3. Verify `/etc/cloudflared/config.yml` contains the new ingress rule and final
    `http_status:404`.
-4. Send SIGHUP to cloudflared:
-   `sudo kill -HUP $(systemctl show cloudflared -p MainPID --value)`.
-5. Verify the process did not exit unexpectedly:
+4. Verify configured credentials file exists. Default expected path:
+   `/etc/cloudflared/<tunnel_id>.json`, unless `cloudflared_credentials_file`
+   overrides it.
+5. Send SIGHUP to cloudflared from root shell:
+   `kill -HUP $(systemctl show cloudflared -p MainPID --value)`.
+6. Verify the process did not exit unexpectedly:
    `systemctl is-active cloudflared` and `systemctl show cloudflared -p MainPID`.
-6. Request the new route:
+7. Request the new route:
    `curl -vk https://gateway-alice.<subdomain>.<domain>/`.
-7. Disable the route through overlay-API, send SIGHUP again, and request the
+8. Disable the route through overlay-API, send SIGHUP again, and request the
    same URL.
-8. Record cloudflared version:
+9. Record cloudflared version:
    `cloudflared --version`.
-9. Record cloudflared service unit:
+10. Record cloudflared service unit:
    `systemctl cat cloudflared`.
 
 **Expected result.**
@@ -695,3 +762,159 @@ or already had OpenClaw/cloudflared/Tailscale state.
 - Rendered cloudflared config with secrets redacted.
 - State DB route row for `alice-signup`.
 - `curl -vk` output for enabled and disabled URL.
+
+## Phase 7: Per-User Overlay Watcher
+
+### UC-0701: Watcher Publishes Plugin Callback Route
+
+- Phase: 7
+- Scenario type: `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- Phase 6 overlay-API is installed and running.
+- Managed user `alice` exists and is active.
+- `openclaw-overlay-watcher.service` is running as `alice`.
+- A test plugin or config fixture creates a callback-capable plugin entry in
+  `~/.openclaw/openclaw.json`.
+
+**Steps.**
+
+1. As `alice`, add or update the callback-capable plugin entry in
+   `~/.openclaw/openclaw.json`.
+2. Wait for `openclaw-overlay-watcher.service` to process the change.
+3. Check `journalctl --user -u openclaw-overlay-watcher --no-pager -n 200` as
+   `alice`.
+4. Confirm overlay-API has a plugin route for `alice` with expected
+   `plugin_id`, hostname hint, local port, and enabled state.
+5. Confirm `/etc/cloudflared/config.yml` contains the plugin callback hostname.
+6. Confirm OpenClaw config contains callback URL and callback port values
+   written by the watcher.
+7. Request the callback URL with `curl -vk`.
+
+**Expected result.**
+
+- Watcher detects the config change and calls overlay-API as `alice`.
+- overlay-API returns a daemon-derived plugin route ID.
+- Cloudflared config contains the callback ingress rule.
+- OpenClaw config contains the returned callback URL and port.
+- Callback URL reaches the local callback service.
+
+**Capture on failure.**
+
+- `~/.openclaw/openclaw.json` with secrets redacted.
+- `~/.openclaw-overlay/watcher.state`.
+- `journalctl --user -u openclaw-overlay-watcher --no-pager -n 300`.
+- `journalctl -u openclaw-overlay-api --no-pager -n 300`.
+- Rendered cloudflared config with secrets redacted.
+- State DB route row for the plugin route.
+
+### UC-0702: Watcher Resync Is Idempotent
+
+- Phase: 7
+- Scenario type: `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- UC-0701 has passed for `alice`.
+- Watcher state exists at `~/.openclaw-overlay/watcher.state`.
+
+**Steps.**
+
+1. Restart `openclaw-overlay-watcher.service` as `alice`.
+2. Touch or rewrite `~/.openclaw/openclaw.json` without changing callback
+   plugin data.
+3. Wait for watcher processing.
+4. List plugin routes for `alice` through overlay-API or state DB.
+5. Compare route ID, hostname, URL, and local port with the values from
+   UC-0701.
+
+**Expected result.**
+
+- Watcher does not create duplicate plugin routes.
+- Route ID remains stable.
+- OpenClaw callback URL and port remain stable.
+- Watcher logs show no error during restart/resync.
+
+**Capture on failure.**
+
+- Previous and current `watcher.state`.
+- State DB route rows for `alice`.
+- Watcher journal logs.
+- overlay-API journal logs.
+
+### UC-0703: Plugin Removal Removes Callback Route
+
+- Phase: 7
+- Scenario type: `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- UC-0701 has passed for `alice`.
+- The plugin callback route is enabled and present in cloudflared config.
+
+**Steps.**
+
+1. As `alice`, remove the callback-capable plugin entry from
+   `~/.openclaw/openclaw.json`.
+2. Wait for watcher processing.
+3. Confirm watcher journal logs show the removal was processed.
+4. Confirm the plugin callback route is removed or disabled according to Phase 7
+   implementation behavior.
+5. Confirm `/etc/cloudflared/config.yml` no longer contains an active ingress
+   rule for the removed plugin callback.
+6. Request the old callback URL with `curl -vk`.
+
+**Expected result.**
+
+- Watcher detects plugin removal.
+- Removed plugin callback route is no longer active.
+- Old public callback URL no longer reaches Alice's callback service.
+- Watcher state no longer marks the removed plugin as synced.
+
+**Capture on failure.**
+
+- OpenClaw config before/after with secrets redacted.
+- `watcher.state` before/after.
+- State DB route rows for `alice`.
+- Watcher and overlay-API journal logs.
+- Rendered cloudflared config.
+- `curl -vk` output for old callback URL.
+
+### UC-0704: Watcher Restart Uses Persisted Snapshot
+
+- Phase: 7
+- Scenario type: `owner-vps`
+- Status: `planned`
+
+**Preconditions.**
+
+- UC-0701 has passed for `alice`.
+- `~/.openclaw-overlay/watcher.state` exists.
+
+**Steps.**
+
+1. Stop `openclaw-overlay-watcher.service` as `alice`.
+2. Start `openclaw-overlay-watcher.service` again.
+3. Check watcher logs for startup and initial sync.
+4. Confirm no duplicate plugin routes are created.
+5. Confirm existing callback URL remains reachable.
+6. Confirm `watcher.state` still matches overlay-API route response.
+
+**Expected result.**
+
+- Watcher loads persisted snapshot on restart.
+- Initial sync is idempotent.
+- Existing plugin callback route remains stable and reachable.
+- No duplicate route rows appear.
+
+**Capture on failure.**
+
+- Watcher journal logs.
+- `watcher.state`.
+- State DB route rows for `alice`.
+- overlay-API journal logs.
+- Rendered cloudflared config.

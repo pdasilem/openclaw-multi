@@ -178,10 +178,10 @@ func nonEmptyLines(s string) []string {
 	return lines
 }
 
-func nonEmpty(value, fallback string) string {
+func nonEmpty(value, defaultValue string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return fallback
+		return defaultValue
 	}
 	return value
 }

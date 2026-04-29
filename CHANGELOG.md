@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## v0.7.0 - 2026-04-29
+
+### Added
+- `openclaw-overlay-watcher` per-user daemon with config parsing, fsnotify
+  directory watching, debounce/full rescan, snapshot persistence, and OpenClaw
+  callback config writes.
+- `internal/watcher` with callback discovery, watcher state, sync
+  orchestration, fsnotify adapter, and unit tests.
+- overlay-API client plugin route upsert/delete methods.
+- `docs/watcher.md` and Phase 7 owner-run E2E cases.
+
 ## v0.6.0 - 2026-04-28
 
 ### Added

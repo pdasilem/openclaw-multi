@@ -4,7 +4,6 @@ package deps
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -15,11 +14,12 @@ import (
 type NodeStatus struct {
 	Installed bool
 	Version   string
-	Skipped   bool // true if already at or above minVersion
+	Skipped   bool // true when no system-space Node action is required
 }
 
-// EnsureNode ensures Node.js >= minVersion is installed.
-// If already present at a sufficient version, returns Skipped=true immediately.
+// EnsureNode checks for a sufficient system Node.js without installing it.
+// OpenClaw tenant runtimes are installed per managed user through nvm, so fresh
+// install must not add Node.js to system space.
 func EnsureNode(ctx context.Context, exec shell.Executor, minVersion string) (NodeStatus, error) {
 	res, err := exec.Run(ctx, shell.ExecOpts{Cmd: []string{"node", "--version"}})
 	if err == nil {
@@ -27,42 +27,10 @@ func EnsureNode(ctx context.Context, exec shell.Executor, minVersion string) (No
 		if semverGTE(version, minVersion) {
 			return NodeStatus{Installed: true, Version: version, Skipped: true}, nil
 		}
+		return NodeStatus{Installed: true, Version: version, Skipped: true}, nil
 	}
 
-	// Install via NodeSource.
-	distro, _ := detectDistro(ctx, exec)
-	if distro != "debian" && distro != "ubuntu" {
-		return NodeStatus{}, fmt.Errorf("unsupported distro for Node.js install: %q", distro)
-	}
-
-	major := semverMajor(minVersion)
-	setupURL := fmt.Sprintf("https://deb.nodesource.com/setup_%d.x", major)
-
-	if _, err := exec.Run(ctx, shell.ExecOpts{
-		Cmd:  []string{"bash", "-c", fmt.Sprintf("curl -fsSL %s | sudo -E bash -", setupURL)},
-		Sudo: false,
-	}); err != nil {
-		return NodeStatus{}, fmt.Errorf("nodesource setup: %w", err)
-	}
-	if _, err := exec.Run(ctx, shell.ExecOpts{
-		Cmd:  []string{"apt-get", "install", "-y", "nodejs"},
-		Sudo: true,
-	}); err != nil {
-		return NodeStatus{}, fmt.Errorf("apt-get install nodejs: %w", err)
-	}
-
-	verRes, _ := exec.Run(ctx, shell.ExecOpts{Cmd: []string{"node", "--version"}})
-	return NodeStatus{Installed: true, Version: strings.TrimSpace(verRes.Stdout)}, nil
-}
-
-func detectDistro(ctx context.Context, exec shell.Executor) (string, error) {
-	res, err := exec.Run(ctx, shell.ExecOpts{
-		Cmd: []string{"bash", "-c", "source /etc/os-release && echo $ID"},
-	})
-	if err != nil {
-		return "", err
-	}
-	return strings.ToLower(strings.TrimSpace(res.Stdout)), nil
+	return NodeStatus{Installed: false, Skipped: true}, nil
 }
 
 // semverGTE returns true if version >= min (both in vX.Y.Z format).
@@ -90,8 +58,4 @@ func parseSemver(s string) [3]int {
 		out[i], _ = strconv.Atoi(p)
 	}
 	return out
-}
-
-func semverMajor(s string) int {
-	return parseSemver(strings.TrimPrefix(s, "v"))[0]
 }

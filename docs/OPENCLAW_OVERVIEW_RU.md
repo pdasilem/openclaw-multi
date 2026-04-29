@@ -62,12 +62,15 @@ Gateway watch'ит файл и применяет правки горячо.
 | **Channels**   | подключаемые мессенджеры                 | живут внутри Gateway-процесса                         |
 | **Agents**     | сущности с моделью + workspace           | один Gateway может держать несколько агентов          |
 
-Базовые команды:
+Базовые команды OpenClaw:
 
 - `openclaw onboard` — мастер первичной настройки.
 - `openclaw gateway --port 18789 --bind <mode>` — запуск Gateway.
-- `openclaw onboard --install-daemon` — установка systemd/launchd-юнита для
-  автозапуска (`README.md:97-108`).
+
+Overlay onboarding для managed tenant:
+
+- `/home/<user>/.local/bin/openclaw onboard --non-interactive --install-daemon`
+  — единственный onboarding path OpenClaw Multi.
 
 ---
 
@@ -86,7 +89,7 @@ Gateway watch'ит файл и применяет правки горячо.
 | `loopback` | `127.0.0.1` (+ `[::1]`)                  | дефолт, локальный доступ | ✅ через SSH-туннель / Tailscale Serve                                  |
 | `lan`      | `0.0.0.0`                                | вся локальная сеть       | ⚠️ публично без TLS = опасно (plaintext `ws://`, токен в открытом виде) |
 | `tailnet`  | Tailscale IPv4 (CGNAT `100.x.x.x`)       | приватный VPN Tailscale  | ✅ безопасно (трафик в L3-туннеле)                                      |
-| `auto`     | `0.0.0.0` в контейнере, иначе `loopback` | контейнерный fallback    | контекстно — то же что выбранный фактический режим                      |
+| `auto`     | `0.0.0.0` в контейнере, иначе `loopback` | авто-выбор для контейнера | контекстно — то же что выбранный фактический режим                      |
 
 Дополнительно — **надстройки поверх bind**:
 
@@ -277,7 +280,7 @@ export function resolveGatewayLockDir(tmpdir = os.tmpdir): string {
 | **CDP-порты браузера**            | `controlPort = base + 2`, CDP-диапазон `+9..+108` (`docs/gateway/multiple-gateways.md:131-139`) | gap между базовыми портами ≥ 20, иначе пересечение                                                                                                               |
 | **Группа `docker`**               | если sandbox включён, оба юзера должны быть в группе `docker`                                   | известный footgun: участник группы `docker` фактически имеет root через `docker run -v /:/host`. Для adversarial-юзеров — недопустимо                            |
 | **Глобальные сервисы**            | systemd / Tailscale / launchd зачастую глобальны                                                | использовать `systemctl --user` (`docs/vps.md:84-116`) — каждому юзеру отдельный user-юнит                                                                       |
-| **Параллельная установка пакета** | `npm i -g openclaw` либо в `~/.npm`, либо в системном `/usr/lib/node_modules`                   | per-user prefix через `npm config set prefix ~/.npm-global` (тогда node_modules дублируются), либо общий глобальный пакет (тогда обновления у всех одновременно) |
+| **Параллельная установка пакета** | общий системный OpenClaw CLI смешивает tenants и ломает staged rollout                          | OpenClaw CLI ставится только в tenant user-space через `nvm`; system-space overlay не требует global `openclaw`                                                 |
 
 ### 6.4 Защита на уровне файловой системы
 

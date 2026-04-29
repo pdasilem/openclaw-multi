@@ -195,8 +195,7 @@ voice-call) есть:
 - watch на `~/.openclaw/openclaw.json` (плагин при установке записывает
   туда свою секцию);
 - post-install hook от `openclaw plugins install` (если такая возможность
-  будет добавлена; на момент main её нет — overlay использует watch как
-  fallback).
+  будет добавлена; на момент main её нет — overlay использует watch).
 
 Watcher делает следующее:
 
@@ -446,8 +445,7 @@ Overlay-инсталлятор по умолчанию выключает `OPENC
 ### 3.8. Что переживает обновление главного пакета
 
 ```bash
-sudo npm install -g openclaw@latest    # обновляет общий бинарь
-openclaw-multi update                  # пробегает по юзерам, openclaw doctor для каждого
+openclaw-multi update                  # обновляет tenant runtime и запускает openclaw doctor для каждого user
 ```
 
 `openclaw-multi update` под каждым юзером:
@@ -469,7 +467,7 @@ overlay-репо.
 | Breaking changes в JSON-схеме конфига                                | `openclaw config validate`         | держать конфиг минимальным, использовать стабильные поля |
 | Изменение пути `~/.openclaw`                                         | следить за CHANGELOG               | overlay умеет миграцию (rename + symlink)                |
 | Появление официальной поддержки cloudflared в `tunnel.provider` enum | хорошая новость — упростит overlay | подменить на родной `tunnel.provider: cloudflared`       |
-| Поломка `--non-interactive` onboard                                  | smoke-test                         | держать last-known-good версию пакета как fallback       |
+| Поломка `--non-interactive` onboard                                  | smoke-test                         | держать last-known-good версию пакета для отката         |
 
 ### 3.9. Что НЕ закроет даже идеальный overlay
 
@@ -519,8 +517,8 @@ OpenClaw. Для compliance (PCI/HIPAA) нужен отдельный хост; 
   декларирующих `needs.publicCallback`. Никакого ручного UFW или открытия
   портов — UFW остаётся `default deny incoming`.
 - Overlay живёт **полностью вне** `node_modules` и репозитория OpenClaw.
-  `npm i -g openclaw@latest` его не ломает. Pre-allocated port pools и
-  overlay-API контролируют всю динамику.
+  OpenClaw runtime обновляется только внутри tenant user-space. Pre-allocated
+  port pools и overlay-API контролируют всю динамику.
 - Трудоёмкость: 20–25 дней на full с cloudflared-автоматикой; 30–40 на
   adversarial-grade с аудитом.
 
@@ -546,6 +544,6 @@ OpenClaw. Для compliance (PCI/HIPAA) нужен отдельный хост; 
    hidepid, ptrace_scope, отдельные `--user` юниты, отключённый
    Docker-sandbox в пользу rootless Podman). Cloudflared интегрирован как
    часть overlay для автоматического publishing inbound-эндпоинтов
-   плагинов. Overlay не ломается при `npm i -g openclaw@latest`.
+   плагинов. Overlay не зависит от глобального OpenClaw CLI.
    MVP с cloudflared-автоматикой — 20–25 чел.-дней; adversarial-grade с
    аудитом — 30–40.

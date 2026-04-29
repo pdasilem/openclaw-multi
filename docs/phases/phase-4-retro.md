@@ -37,7 +37,7 @@ Audit actions were added for `doctor_run` and `doctor_fix`.
 - Service checks are intentionally shallow and read-only. `openclaw-overlay-api`
   can be reported as `skipped` while the daemon is still assigned to Phase 6.
 - The `openclaw doctor --json` parser is implemented, but real CLI output still
-  needs VPS validation. Text fallback is present for non-JSON output.
+  needs VPS validation. Text parsing is present for non-JSON output.
 
 ## Carry Forward
 

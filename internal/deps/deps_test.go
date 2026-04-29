@@ -27,37 +27,39 @@ func TestEnsureNodeAlreadyInstalled(t *testing.T) {
 }
 
 func TestEnsureNodeOlderVersion(t *testing.T) {
-	// node --version returns old version, then distro detection, then install commands.
 	exec := &shell.MockExecutor{
-		Responses: []shell.ExecResult{
-			shell.OKResponse("v18.0.0\n"),  // node --version
-			shell.OKResponse("ubuntu\n"),   // distro detection
-			shell.OKResponse(""),           // curl nodesource
-			shell.OKResponse(""),           // apt-get install nodejs
-			shell.OKResponse("v22.16.0\n"), // version after install
-		},
+		Responses: []shell.ExecResult{shell.OKResponse("v18.0.0\n")},
 	}
 	status, err := EnsureNode(context.Background(), exec, "22.16.0")
 	if err != nil {
 		t.Fatalf("EnsureNode old version: %v", err)
 	}
-	if status.Skipped {
-		t.Error("expected Skipped=false for old version")
+	if !status.Skipped {
+		t.Error("expected Skipped=true; system Node is never upgraded by overlay")
+	}
+	if exec.CallCount() != 1 {
+		t.Errorf("expected no install commands, got %d calls", exec.CallCount())
 	}
 }
 
 func TestEnsureNodeNotInstalled(t *testing.T) {
 	errRes, nodeErr := shell.ErrResponse("not found", 127)
 	exec := &shell.MockExecutor{
-		Responses: []shell.ExecResult{errRes, shell.OKResponse("ubuntu\n"), shell.OKResponse(""), shell.OKResponse(""), shell.OKResponse("v22.16.0\n")},
-		Errors:    []error{nodeErr, nil, nil, nil, nil},
+		Responses: []shell.ExecResult{errRes},
+		Errors:    []error{nodeErr},
 	}
 	status, err := EnsureNode(context.Background(), exec, "22.16.0")
 	if err != nil {
 		t.Fatalf("EnsureNode not installed: %v", err)
 	}
-	if !status.Installed {
-		t.Error("expected Installed=true after install")
+	if status.Installed {
+		t.Error("expected Installed=false when system Node is absent")
+	}
+	if !status.Skipped {
+		t.Error("expected Skipped=true; tenant Node is installed in user-space")
+	}
+	if exec.CallCount() != 1 {
+		t.Errorf("expected no install commands, got %d calls", exec.CallCount())
 	}
 }
 

@@ -68,11 +68,23 @@ func TestManagerAddSuccess(t *testing.T) {
 	if user.GatewayURL != "https://gateway-alice.ui.example.com" {
 		t.Fatalf("GatewayURL: got %q", user.GatewayURL)
 	}
-	if exec.CallCount() != 8 {
-		t.Fatalf("expected 8 command calls, got %d", exec.CallCount())
+	if exec.CallCount() != 12 {
+		t.Fatalf("expected 12 command calls, got %d", exec.CallCount())
 	}
-	if !envContains(exec.Calls[3].Env, "OPENCLAW_GATEWAY_TOKEN=") {
-		t.Fatalf("expected gateway token env in onboard call: %+v", exec.Calls[3].Env)
+	if !envContains(exec.Calls[5].Env, "OPENCLAW_GATEWAY_TOKEN=") {
+		t.Fatalf("expected gateway token env in onboard call: %+v", exec.Calls[5].Env)
+	}
+	if !strings.Contains(strings.Join(exec.Calls[5].Cmd, " "), "/home/alice/.local/bin/openclaw onboard --install-daemon") {
+		t.Fatalf("expected tenant openclaw wrapper in onboard call: %+v", exec.Calls[5].Cmd)
+	}
+	if _, ok := fs.Files["/home/alice/.local/bin/openclaw"]; !ok {
+		t.Fatal("expected tenant openclaw wrapper written")
+	}
+	if _, ok := fs.Files["/home/alice/.local/bin/openclaw-gateway-start"]; !ok {
+		t.Fatal("expected tenant gateway wrapper written")
+	}
+	if data := string(fs.Files["/home/alice/.config/systemd/user/openclaw-gateway.service"]); !strings.Contains(data, "/home/alice/.local/bin/openclaw-gateway-start") {
+		t.Fatalf("expected gateway unit to use tenant wrapper, got %q", data)
 	}
 	if _, ok := fs.Files["/home/alice/.config/systemd/user/openclaw-overlay-watcher.service"]; !ok {
 		t.Fatal("expected watcher unit written")
@@ -182,7 +194,9 @@ func TestManagerAddWatcherTemplateFailure(t *testing.T) {
 		shell.OKResponse("1001\n"),
 		shell.OKResponse(""),
 	}}
-	m := testManager(openUserTestStore(t), exec, shell.NewMemFS(), nil)
+	fs := shell.NewMemFS()
+	fs.Files["templates/openclaw-gateway.service.tmpl"] = []byte("ExecStart=/home/${USERNAME}/.local/bin/openclaw-gateway-start\n")
+	m := testManager(openUserTestStore(t), exec, fs, nil)
 	_, err := m.Add(context.Background(), AddRequest{Username: "alice"})
 	if err == nil || !strings.Contains(err.Error(), "read watcher template") {
 		t.Fatalf("expected watcher template error, got %v", err)
@@ -197,6 +211,7 @@ func TestManagerAddWatcherTemplateRenderFailure(t *testing.T) {
 		shell.OKResponse(""),
 	}}
 	fs := shell.NewMemFS()
+	fs.Files["templates/openclaw-gateway.service.tmpl"] = []byte("ExecStart=/home/${USERNAME}/.local/bin/openclaw-gateway-start\n")
 	fs.Files["templates/openclaw-overlay-watcher.service.tmpl"] = []byte("${UNKNOWN}\n")
 	m := testManager(openUserTestStore(t), exec, fs, nil)
 	_, err := m.Add(context.Background(), AddRequest{Username: "alice"})
@@ -228,12 +243,16 @@ func TestManagerAddRouteFailureRollsBackState(t *testing.T) {
 }
 
 func TestManagerAddLateCommandFailures(t *testing.T) {
-	for _, failAt := range []int{3, 4, 5, 6, 7} {
+	for _, failAt := range []int{3, 4, 5, 6, 7, 8, 9, 10, 11} {
 		t.Run(fmt.Sprintf("fail-at-%d", failAt), func(t *testing.T) {
 			responses := []shell.ExecResult{
 				shell.OKResponse(""),
 				shell.OKResponse(""),
 				shell.OKResponse("1001\n"),
+				shell.OKResponse(""),
+				shell.OKResponse(""),
+				shell.OKResponse(""),
+				shell.OKResponse(""),
 				shell.OKResponse(""),
 				shell.OKResponse(""),
 				shell.OKResponse(""),
@@ -528,6 +547,7 @@ func configWithDomain() *config.OverlayConfig {
 func watcherFS() *shell.MemFS {
 	fs := shell.NewMemFS()
 	fs.Files["templates/openclaw-overlay-watcher.service.tmpl"] = []byte("user=${USERNAME}\napi=${OVERLAY_API_ENDPOINT}\n")
+	fs.Files["templates/openclaw-gateway.service.tmpl"] = []byte("ExecStart=/home/${USERNAME}/.local/bin/openclaw-gateway-start\nport=${GATEWAY_PORT}\ntoken=${GATEWAY_TOKEN}\n")
 	return fs
 }
 

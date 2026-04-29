@@ -37,8 +37,8 @@ external_docs_checked:
 3. Add deterministic cloudflared config generation from `state.routes`, with
    atomic write, backup, validation, SIGHUP reload, and rollback behavior.
 4. Move user lifecycle route publication from state-only intent to the
-   overlay-API path where practical, while retaining state-only tests and
-   fallback seams.
+   overlay-API path where practical, while retaining state-only tests for
+   package boundaries.
 5. Add last-seen HTTP endpoints backed by the existing Phase 5 cloudflared log
    parser/cache behavior.
 6. `make ci` passes and owner-run E2E checks are documented.

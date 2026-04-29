@@ -7,7 +7,7 @@ Type=simple
 Environment=OPENCLAW_GATEWAY_PORT=${GATEWAY_PORT}
 Environment=OPENCLAW_GATEWAY_TOKEN=${GATEWAY_TOKEN}
 Environment=OPENCLAW_GATEWAY_BIND=loopback
-ExecStart=/usr/bin/openclaw gateway start --daemon false
+ExecStart=/home/${USERNAME}/.local/bin/openclaw-gateway-start
 Restart=on-failure
 RestartSec=10
 

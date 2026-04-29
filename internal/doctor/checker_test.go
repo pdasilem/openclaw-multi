@@ -57,7 +57,6 @@ func TestRunReportsHealthAndFixablePermissions(t *testing.T) {
 	log := &auditRecorder{}
 	exec := &shell.MockExecutor{Responses: []shell.ExecResult{
 		shell.OKResponse("Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/root 100000 1000 99000 1% /\n"),
-		shell.OKResponse("/usr/bin/openclaw\n"),
 		shell.OKResponse("/usr/bin/systemctl\n"),
 		shell.OKResponse("/usr/bin/loginctl\n"),
 		shell.OKResponse("/usr/bin/ss\n"),
@@ -65,6 +64,7 @@ func TestRunReportsHealthAndFixablePermissions(t *testing.T) {
 		shell.OKResponse("active\n"),
 		shell.OKResponse("inactive\n"),
 		shell.OKResponse("yes\n"),
+		shell.OKResponse("2026.4.27\n"),
 		shell.OKResponse("active\n"),
 		shell.OKResponse("active\n"),
 		shell.OKResponse("LISTEN 0 4096 127.0.0.1:18789 0.0.0.0:*\n"),
@@ -139,9 +139,9 @@ func TestPlanAndApplyFixes(t *testing.T) {
 		{Target: "alice", Message: "not allowed", Fixable: true, FixID: "rotate-key"},
 		{Target: "system", Message: "profile missing", Fixable: true, FixID: "repair-umask-profile"},
 	}}
-	fs := shell.NewMemFS()
+	memFS := shell.NewMemFS()
 	exec := &shell.MockExecutor{Responses: []shell.ExecResult{shell.OKResponse("")}}
-	checker := NewChecker(openDoctorTestStore(t), exec, fs, nil, Options{})
+	checker := NewChecker(openDoctorTestStore(t), exec, memFS, nil, Options{})
 	plan := checker.PlanFixes(report)
 	if len(plan.Fixes) != 2 {
 		t.Fatalf("expected two allowed fixes, got %+v", plan)
@@ -152,7 +152,7 @@ func TestPlanAndApplyFixes(t *testing.T) {
 	if exec.CallCount() != 1 {
 		t.Fatalf("expected one chmod command, got %d", exec.CallCount())
 	}
-	if string(fs.Files[defaultUmaskProfile]) != "umask 0077\n" {
+	if string(memFS.Files[defaultUmaskProfile]) != "umask 0077\n" {
 		t.Fatalf("expected umask profile repair")
 	}
 }

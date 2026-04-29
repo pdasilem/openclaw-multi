@@ -54,6 +54,10 @@ plugin:<username>:<plugin_id>:<hostname_hint>
 
 Repeated plugin route requests with the same tuple update the existing route.
 
+Phase 7 watcher clients must use these endpoints and must not send canonical
+route IDs. The watcher sends `plugin_id`, `hostname_hint`, and `local_port`;
+overlay-API returns the route ID and public URL.
+
 ## Cloudflared Publication
 
 The daemon renders `/etc/cloudflared/config.yml` from enabled routes in

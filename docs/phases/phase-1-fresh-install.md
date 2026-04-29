@@ -371,11 +371,10 @@ All file writes go through injectable `fs` helper (interface with `ReadFile`,
 - [ ] `NodeStatus{Installed bool; Version string; Skipped bool}`.
 - [ ] Detect: `node --version` via Executor, parse semver, compare to minVersion.
 - [ ] If already ≥ minVersion: `Skipped: true`, no further calls.
-- [ ] If missing/old: command sequence recorded in MockExecutor as:
-  `curl -fsSL <nodesource-url> | sudo -E bash -` → `sudo apt-get install -y nodejs`.
-- [ ] Audit entry on install.
-- [ ] Unit tests: already installed (correct version), already installed (old version
-  → needs upgrade), not installed. Coverage ≥ 80%.
+- [ ] If missing/old: no install command is emitted. System-space Node.js is not
+  required by Fresh Install.
+- [ ] Unit tests: already installed (correct version), already installed (old
+  version), not installed. Coverage ≥ 80%.
 
 ---
 
@@ -488,8 +487,9 @@ Each step wraps the corresponding `internal/` package call.
 
 - [ ] `Step1PreFlight` — wraps `preflight.CheckAll`; on warn shows detail but
   continues; on fail aborts.
-- [ ] `Step2Node` — wraps `deps.EnsureNode`.
-- [ ] `Step3Tailscale` — wraps `deps.EnsureTailscale(interactive=false)` during
+- [ ] No Fresh Install Node/OpenClaw step. Node.js and OpenClaw CLI are prepared
+  only inside managed users during add-user.
+- [ ] `Step2Tailscale` — wraps `deps.EnsureTailscale(interactive=false)` during
   tests; `true` in real execution.
 - [ ] `Step4Cloudflared` — before running, TUI asks variant A or B + collects
   domain/token via `bubbles/textinput`; saves to `OverlayConfig`.
@@ -505,9 +505,8 @@ Each step wraps the corresponding `internal/` package call.
 **Acceptance criteria.**
 
 - [ ] `Step6Hardening` — wraps `hardening.Apply*`.
-- [ ] `Step7OpenClaw` — command via Executor:
-  `sudo npm install -g openclaw@latest`; reads back version; writes to state.db.
-- [ ] `Step8OverlayAPI` — copies binary path to `/usr/local/bin/` (via FS),
+- [ ] No global OpenClaw install step. Fresh Install must not install OpenClaw globally.
+- [ ] `Step7OverlayAPI` — copies binary path to `/usr/local/bin/` (via FS),
   renders and writes systemd unit (via FS + Renderer), then
   `sudo systemctl daemon-reload && sudo systemctl enable --now openclaw-overlay-api`
   (via Executor).

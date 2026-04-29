@@ -17,7 +17,10 @@ import (
 	"github.com/pdasilem/openclaw-multi/internal/state"
 )
 
-const watcherTemplateName = "openclaw-overlay-watcher.service.tmpl"
+const (
+	gatewayTemplateName = "openclaw-gateway.service.tmpl"
+	watcherTemplateName = "openclaw-overlay-watcher.service.tmpl"
+)
 
 // Auditor is the small audit interface used by Manager.
 type Auditor interface {
@@ -140,11 +143,31 @@ func (m *Manager) Add(ctx context.Context, req AddRequest) (*state.User, error) 
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
-	if err := m.run(ctx, []string{"su", "-", username, "-c", "openclaw onboard --install-daemon"}, env); err != nil {
+	if err := m.bootstrapTenantRuntime(ctx, username); err != nil {
+		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
+		return nil, err
+	}
+	if err := m.writeOpenClawWrappers(username); err != nil {
+		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
+		return nil, err
+	}
+	if err := m.run(ctx, []string{"chown", "-R", username + ":" + username, "/home/" + username + "/.local/bin"}, nil); err != nil {
+		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
+		return nil, err
+	}
+	if err := m.run(ctx, []string{"su", "-", username, "-c", "/home/" + username + "/.local/bin/openclaw onboard --install-daemon"}, env); err != nil {
+		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
+		return nil, err
+	}
+	if err := m.writeGatewayUnit(username, port, token); err != nil {
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
 	if err := m.writeWatcherUnit(username); err != nil {
+		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
+		return nil, err
+	}
+	if err := m.run(ctx, []string{"chown", "-R", username + ":" + username, "/home/" + username + "/.config/systemd/user", "/home/" + username + "/.local/bin"}, nil); err != nil {
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
@@ -157,6 +180,10 @@ func (m *Manager) Add(ctx context.Context, req AddRequest) (*state.User, error) 
 		return nil, err
 	}
 	if err := m.run(ctx, []string{"su", "-", username, "-c", "systemctl --user daemon-reload"}, nil); err != nil {
+		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
+		return nil, err
+	}
+	if err := m.run(ctx, []string{"su", "-", username, "-c", "systemctl --user enable --now openclaw-gateway.service"}, nil); err != nil {
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
@@ -352,6 +379,81 @@ func (m *Manager) lookupUID(ctx context.Context, username string) (int, error) {
 	return uid, nil
 }
 
+func (m *Manager) bootstrapTenantRuntime(ctx context.Context, username string) error {
+	nodeVersion := m.Config.NodeVersionMin
+	if nodeVersion == "" {
+		nodeVersion = config.Defaults().NodeVersionMin
+	}
+	script := strings.Join([]string{
+		"set -e",
+		"export NVM_DIR=\"$HOME/.nvm\"",
+		"if [ ! -s \"$NVM_DIR/nvm.sh\" ]; then git clone https://github.com/nvm-sh/nvm.git \"$NVM_DIR\"; cd \"$NVM_DIR\"; git checkout v0.40.3; fi",
+		". \"$NVM_DIR/nvm.sh\"",
+		"nvm install " + shellQuote(nodeVersion),
+		"nvm use " + shellQuote(nodeVersion),
+		"npm install --global openclaw@latest",
+		"mkdir -p \"$HOME/.local/bin\"",
+	}, "\n")
+	return m.run(ctx, []string{"su", "-", username, "-c", script}, nil)
+}
+
+func (m *Manager) writeOpenClawWrappers(username string) error {
+	nodeVersion := m.Config.NodeVersionMin
+	if nodeVersion == "" {
+		nodeVersion = config.Defaults().NodeVersionMin
+	}
+	dir := filepath.Join("/home", username, ".local", "bin")
+	if err := m.FS.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("mkdir tenant bin dir: %w", err)
+	}
+	openclawWrapper := strings.Join([]string{
+		"#!/usr/bin/env bash",
+		"set -euo pipefail",
+		"export NVM_DIR=\"$HOME/.nvm\"",
+		". \"$NVM_DIR/nvm.sh\"",
+		"nvm use " + shellQuote(nodeVersion) + " >/dev/null",
+		"exec \"$NVM_DIR/versions/node/v" + nodeVersion + "/bin/openclaw\" \"$@\"",
+		"",
+	}, "\n")
+	if err := m.FS.WriteFile(filepath.Join(dir, "openclaw"), []byte(openclawWrapper), 0o700); err != nil {
+		return fmt.Errorf("write openclaw wrapper: %w", err)
+	}
+	gatewayWrapper := strings.Join([]string{
+		"#!/usr/bin/env bash",
+		"set -euo pipefail",
+		"exec \"$HOME/.local/bin/openclaw\" gateway start --daemon false",
+		"",
+	}, "\n")
+	if err := m.FS.WriteFile(filepath.Join(dir, "openclaw-gateway-start"), []byte(gatewayWrapper), 0o700); err != nil {
+		return fmt.Errorf("write gateway wrapper: %w", err)
+	}
+	return nil
+}
+
+func (m *Manager) writeGatewayUnit(username string, port int, token string) error {
+	templatePath := filepath.Join(m.TemplateDir, gatewayTemplateName)
+	data, err := m.FS.ReadFile(templatePath)
+	if err != nil {
+		return fmt.Errorf("read gateway template: %w", err)
+	}
+	rendered, err := config.Render(string(data), map[string]string{
+		"USERNAME":      username,
+		"GATEWAY_PORT":  strconv.Itoa(port),
+		"GATEWAY_TOKEN": token,
+	})
+	if err != nil {
+		return fmt.Errorf("render gateway template: %w", err)
+	}
+	dir := filepath.Join("/home", username, ".config", "systemd", "user")
+	if err := m.FS.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("mkdir gateway unit dir: %w", err)
+	}
+	if err := m.FS.WriteFile(filepath.Join(dir, "openclaw-gateway.service"), []byte(rendered), 0o600); err != nil {
+		return fmt.Errorf("write gateway unit: %w", err)
+	}
+	return nil
+}
+
 func (m *Manager) writeWatcherUnit(username string) error {
 	templatePath := filepath.Join(m.TemplateDir, watcherTemplateName)
 	data, err := m.FS.ReadFile(templatePath)
@@ -361,6 +463,7 @@ func (m *Manager) writeWatcherUnit(username string) error {
 	rendered, err := config.Render(string(data), map[string]string{
 		"USERNAME":             username,
 		"OVERLAY_API_ENDPOINT": "http://127.0.0.1:18788",
+		"OVERLAY_SOCKET":       "/run/openclaw-overlay.sock",
 	})
 	if err != nil {
 		return fmt.Errorf("render watcher template: %w", err)
@@ -373,6 +476,10 @@ func (m *Manager) writeWatcherUnit(username string) error {
 		return fmt.Errorf("write watcher unit: %w", err)
 	}
 	return nil
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
 func (m *Manager) emit(action audit.ActionType, target string, result audit.Result, err error, start time.Time) {

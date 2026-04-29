@@ -32,6 +32,19 @@ func (c Client) DeleteUserRoutes(ctx context.Context, username string) error {
 	return c.do(ctx, http.MethodDelete, "/users/"+username+"/gateway-route", nil, nil)
 }
 
+func (c Client) UpsertPluginRoute(ctx context.Context, username, pluginID, hostnameHint string, localPort int) (state.Route, error) {
+	var resp RouteResponse
+	req := RouteRequest{PluginID: pluginID, HostnameHint: hostnameHint, LocalPort: localPort}
+	if err := c.do(ctx, http.MethodPost, "/users/"+username+"/routes", req, &resp); err != nil {
+		return state.Route{}, err
+	}
+	return responseRoute(resp), nil
+}
+
+func (c Client) DeletePluginRoute(ctx context.Context, username, routeID string) error {
+	return c.do(ctx, http.MethodDelete, "/users/"+username+"/routes/"+routeID, nil, nil)
+}
+
 func (c Client) do(ctx context.Context, method, path string, body any, out any) error {
 	var buf bytes.Buffer
 	if body != nil {

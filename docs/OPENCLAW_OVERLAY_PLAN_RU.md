@@ -34,11 +34,20 @@
 - **Полное удаление с опциями** — overlay умеет красиво уйти, не оставив
   мусора, с гранулярными опциями по системным сервисам и пользовательским
   данным.
-- **Полностью обновляемый OpenClaw**: `npm i -g openclaw@latest` не ломает
-  ни одного компонента overlay; для конечного юзера, плагинов из ClawHub
-  и каналов — это обычный OpenClaw без модификаций.
+- **Tenant-scoped OpenClaw runtime**: OpenClaw CLI и Node.js живут внутри
+  каждого managed Linux user через `nvm`; system-space overlay не зависит от
+  глобального OpenClaw CLI.
+- **Node.js 24**: tenant runtime ставит Node.js `24` через `nvm`.
+- **OpenClaw updates из `pdasilem/openclaw:latest`**: OpenClaw CLI ставится и
+  обновляется из этого источника. Команда обновления задается настройкой
+  overlay.
+- **Non-interactive onboarding**: OpenClaw onboarding внутри tenant запускается
+  только через `openclaw onboard --non-interactive`.
 - **TUI-интерфейс** для администратора: одно входное меню, удобная
   навигация в SSH-сессии без X-сервера.
+- **Terminal tab в админке**: на каждом экране overlay после приветствия/логина
+  внизу есть вкладка терминала, чтобы админ запускал команды без выхода из
+  панели.
 
 ### 1.2. Не-цели
 
@@ -194,13 +203,13 @@ Recovery (если админ-аккаунт потерян/заблокиров
 
 | Зависимость         | Проверка                                                                                     | Что делает overlay                                                                                                                                                                                  |
 | ------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Node.js 22.16+      | `command -v node && node -v`                                                                 | если ≥ 22.16 — пропустить; иначе предложить nodesource setup                                                                                                                                        |
+| Node.js 24          | проверка выполняется внутри managed user через `~/.local/bin/openclaw` и `nvm`               | system-space не ставит Node.js; tenant runtime создается на этапе add-user                                                                                                                          |
 | Tailscale           | `command -v tailscale && systemctl is-active tailscaled && tailscale status`                 | если уже работает — сохранить identity, **не делать** `tailscale up` повторно. Опционально предложить добавить ACL-tag для VPS. Если есть, но не залогинен — провести `tailscale up --ssh`          |
 | Cloudflared         | `command -v cloudflared` + наличие `~/.cloudflared/cert.pem` или `/etc/cloudflared/cert.pem` | если бинарь и сертификат есть — переиспользовать; если есть свой `config.yml` — сделать timestamped backup и спросить «overwrite?». Если cloudflared не установлен — поставить из `.deb`            |
 | UFW                 | `ufw status`                                                                                 | если уже active с правилами — показать текущие, спросить «применить overlay-правила (`deny incoming`/`allow outgoing` + ваш порт) и сохранить остальные?». Если inactive — настроить и активировать |
 | sysctl hardening    | `sysctl kernel.yama.ptrace_scope` и т.д.                                                     | если все нужные значения уже выставлены — пропустить; иначе записать `/etc/sysctl.d/openclaw-overlay.conf` и `sysctl --system`                                                                      |
 | `/proc hidepid=2`   | `mount \| grep proc`                                                                         | если уже `hidepid=2` — пропустить; иначе править `/etc/fstab` и `mount -o remount /proc`                                                                                                            |
-| `npm i -g openclaw` | `npm ls -g openclaw --depth=0`                                                               | если уже стоит и версия ≥ ожидаемой — пропустить; иначе `npm install -g openclaw@<target>`                                                                                                          |
+| OpenClaw CLI        | `su - <user> -c "/home/<user>/.local/bin/openclaw --version"`                                | ставится только в tenant user-space через `nvm`; глобальный OpenClaw CLI не используется                                                                                                           |
 
 Любая операция, изменяющая системное состояние, **сначала делает бэкап**
 старого файла (`/var/lib/openclaw-multi/snapshots/<ts>/`) и пишет в audit
@@ -467,7 +476,7 @@ overlay идемпотентен, см. §2.5).
    - Открытые порты `ss -tlnp` (предупредить если что-то слушает на
      18789–19999).
 2. **Установка зависимостей (идемпотентно).**
-   - Node.js 22.16+ — по логике §2.5.
+   - Node.js 24 — по логике §2.5.
    - Tailscale — если уже работает, сохранить identity и не трогать;
      иначе `curl -fsSL https://tailscale.com/install.sh | sh` →
      `tailscale up --ssh`.
@@ -496,7 +505,7 @@ overlay идемпотентен, см. §2.5).
      (только catch-all 404).
    - Установить `cloudflared.service` (systemd).
 
-   **Вариант B. Quick tunnels (fallback, без аккаунта).**
+   **Вариант B. Quick tunnels (временный тестовый режим без аккаунта).**
    - `cloudflared tunnel --url http://localhost:18000` без login.
    - URL'ы будут эфемерными `*.cfargotunnel.com` со случайным префиксом —
      каждый раз новый при перезапуске cloudflared.
@@ -515,14 +524,14 @@ overlay идемпотентен, см. §2.5).
      `mount -o remount /proc`.
    - Записать `/etc/profile.d/openclaw.sh` (umask 0077, NODE_COMPILE_CACHE).
    - `mkdir -p /var/cache/openclaw-compile && chmod 1777 ...`.
-7. **Установка OpenClaw глобально (без onboard'а).**
-   - `npm install -g openclaw@latest`.
-   - **Важно:** `npm i -g openclaw` запускает только
-     `scripts/postinstall-bundled-plugins.mjs` (подготовка bundled-плагинов)
-     — никакого `openclaw onboard` после `npm i` не происходит.
-   - Поэтому overlay на этом шаге **только ставит пакет** и **ничего не
-     настраивает** под root. Все настройки — на этапе add-user.
-   - Проверить версию (`openclaw --version`).
+7. **OpenClaw CLI не ставится глобально.**
+   - Fresh install ставит только system-space overlay components.
+   - Node.js `24` и OpenClaw CLI создаются внутри managed user на этапе
+     add-user через tenant `nvm`.
+   - OpenClaw CLI ставится из `pdasilem/openclaw:latest`.
+   - Команда обновления OpenClaw задается настройкой overlay.
+   - Onboarding запускается только через
+     `/home/<user>/.local/bin/openclaw onboard --non-interactive`.
 8. **Установка overlay-API daemon.**
    - Скопировать бинарник в `/usr/local/bin/openclaw-overlay-api`.
    - Установить `openclaw-overlay-api.service` (systemd).
@@ -558,17 +567,17 @@ overlay идемпотентен, см. §2.5).
 
 1. Если выбран бэкап — `openclaw backup create` под каждым юзером (см.
    §6.4.4).
-2. Запомнить текущую версию пакета (`npm ls -g openclaw`).
-3. `npm install -g openclaw@<target-version>`.
-4. Если выбран рестарт — для каждого юзера `systemctl --user
+2. Для каждого tenant обновить user-space OpenClaw CLI через его `nvm`
+   окружение.
+3. Если выбран рестарт — для каждого юзера `systemctl --user
 restart openclaw-gateway`.
-5. **Обязательные пост-апдейтные тесты** (см. §13 митигацию):
+4. **Обязательные пост-апдейтные тесты** (см. §13 митигацию):
    - `openclaw config validate` под каждым юзером;
    - `openclaw doctor` под каждым юзером с парсингом;
    - smoke-test публикации mock-плагина с tunnel-callback (overlay-API
      поднимает временный route, проверяет доступность, удаляет).
-6. **При падении хотя бы одного теста**:
-   - автоматический откат пакета: `npm install -g openclaw@<previous>`;
+5. **При падении хотя бы одного теста**:
+   - откат tenant package в каждом затронутом user-space runtime;
    - перезапуск всех Gateway;
    - audit log entry с уровнем CRITICAL;
    - TUI notification («апдейт откачен, требуется обновление overlay-слоя
@@ -627,21 +636,21 @@ restart openclaw-gateway`.
    ```
 
    **Что должен выбрать админ в wizard'е** (TUI показывает подсказки):
+   - `--non-interactive` — обязательно.
    - `--install-daemon` — обязательно (systemd --user unit + linger).
    - Bind mode — `loopback` (overlay сам публикует через cloudflared).
    - Tailscale в `gateway.tailscale` — `mode: off` (overlay не использует
      TS для юзеров).
    - Auth mode — `token` (default), токен уже подставлен через env.
-   - Каналы и провайдеры — на усмотрение юзера, overlay не вмешивается.
+   - Каналы и провайдеры задаются параметрами non-interactive onboarding.
 
-8. **Передать управление в стандартный onboarding OpenClaw**:
+8. **Запустить non-interactive onboarding OpenClaw**:
 
    ```bash
-   su - <user> -c "openclaw onboard --install-daemon"
+   su - <user> -c "/home/<user>/.local/bin/openclaw onboard --non-interactive --mode local --auth-choice skip --gateway-bind loopback --gateway-auth token --gateway-token-ref-env OPENCLAW_GATEWAY_TOKEN --gateway-port $OPENCLAW_GATEWAY_PORT --install-daemon --accept-risk"
    ```
 
-   Админ (или сам юзер, если он рядом) проходит wizard. После завершения
-   wizard сам включает linger (если не получилось — overlay добьёт после).
+   После завершения OpenClaw Multi проверяет `openclaw doctor` и user service.
 
 9. После завершения onboard — TUI **возвращает себе управление** и
    доделывает overlay-сторону:
@@ -1304,7 +1313,7 @@ production-grade overlay.**
 Решённые на этапе ревью пользователем (зафиксированы в плане):
 
 - ~~Q1. Domain для wildcard CNAME~~ → quick-tunnel default + опция «свой домен».
-- ~~Q2. Cloudflared без аккаунта~~ → основной путь с аккаунтом, fallback на quick tunnels.
+- ~~Q2. Cloudflared без аккаунта~~ → основной путь с аккаунтом, quick tunnels только для временных тестов.
 - ~~Q3. Multi-VPS~~ → только doc-раздел в v1.0, реализация v1.1.
 - ~~Q4. Teams автоматизация~~ → стандартный flow OpenClaw, без специальной overlay-логики.
 - ~~Q5. Web UI~~ → не делаем.
@@ -1353,7 +1362,7 @@ production-grade overlay.**
 
 | Риск                                                 | Вероятность | Импакт    | Митигация                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ---------------------------------------------------- | ----------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **OpenClaw меняет JSON-схему конфига несовместимо**  | средняя     | большой   | **Обязательные автоматические тесты после `npm i -g openclaw@<new>`**: `openclaw config validate` под каждым юзером + smoke `openclaw doctor` + тест публикации mock-плагина с tunnel-callback. **При падении любого теста — автоматический откат пакета** (`npm i -g openclaw@<previous>`) **и уведомление админа** (TUI notification + audit log entry CRITICAL + опциональный email/Telegram alert). Сообщение: «требуется обновление overlay-слоя для совместимости с OpenClaw <new>». |
+| **OpenClaw меняет JSON-схему конфига несовместимо**  | средняя     | большой   | **Обязательные автоматические тесты после tenant-scoped обновления OpenClaw**: `openclaw config validate` под каждым юзером + smoke `openclaw doctor` + тест публикации mock-плагина с tunnel-callback. **При падении любого теста — откат tenant package** и уведомление админа (TUI notification + audit log entry CRITICAL + опциональный email/Telegram alert). Сообщение: «требуется обновление overlay-слоя для совместимости с OpenClaw <new>». |
 | Cloudflare меняет API/CLI cloudflared                | низкая      | средний   | использовать только стабильные команды, читать CHANGELOG перед апдейтом                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Tailscale меняет CLI                                 | низкая      | средний   | то же                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | systemd-user поведение меняется в новой Ubuntu       | низкая      | средний   | тестировать на основных distro в CI                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -1410,8 +1419,8 @@ multi-user развёртывание на VPS с adversarial-grade изоляц
 
 Утилита не модифицирует OpenClaw core, использует встроенные команды
 `openclaw backup create / verify` и `openclaw uninstall --all` вместо
-самописных аналогов. Апдейт `npm i -g openclaw@latest` сопровождается
-обязательными пост-апдейтными тестами с автоматическим откатом и
+самописных аналогов. Tenant-scoped апдейт OpenClaw сопровождается
+обязательными пост-апдейтными тестами с откатом tenant package и
 уведомлением админа при поломке схемы. Юзер видит обычный OpenClaw —
 плагины и каналы настраиваются стандартным wizard'ом, overlay только под
 капотом обеспечивает сетевую инфраструктуру.

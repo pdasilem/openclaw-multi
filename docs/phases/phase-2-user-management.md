@@ -204,7 +204,7 @@ Backend add/bootstrap operation:
 5. Generate gateway token automatically.
 6. Run, via `Executor`, the intended commands:
    `useradd -m -s /bin/bash <user>`, `loginctl enable-linger <user>`, and
-   `su - <user> -c "openclaw onboard --install-daemon"`.
+   `su - <user> -c "/home/<user>/.local/bin/openclaw onboard --non-interactive --mode local --auth-choice skip --gateway-bind loopback --gateway-auth token --gateway-token-ref-env OPENCLAW_GATEWAY_TOKEN --gateway-port $OPENCLAW_GATEWAY_PORT --install-daemon --accept-risk"`.
 7. Pass env vars through `ExecOpts.Env`:
    `OPENCLAW_GATEWAY_PORT`, `OPENCLAW_GATEWAY_TOKEN`,
    `OPENCLAW_GATEWAY_BIND=loopback`.

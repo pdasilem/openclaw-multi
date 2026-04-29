@@ -41,8 +41,8 @@ su - <user> -c "openclaw doctor --json"
 ```
 
 If JSON output is available, it is parsed into structured results. If JSON is
-not available, the fallback parser maps obvious text `warn`, `error`, and
-`fail` markers into health statuses.
+not available, the text parser maps obvious `warn`, `error`, and `fail` markers
+into health statuses.
 
 ## Auto-fix
 
