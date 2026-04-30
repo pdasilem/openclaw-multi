@@ -69,7 +69,14 @@ func IsRoot() bool {
 
 // WarnIfRoot returns a warning message when running as root, or empty string.
 func WarnIfRoot() string {
-	if !IsRoot() {
+	return rootWarning(os.Getuid(), os.Getenv("SUDO_USER"))
+}
+
+func rootWarning(uid int, sudoUser string) string {
+	if uid != 0 {
+		return ""
+	}
+	if sudoUser != "" && sudoUser != "root" {
 		return ""
 	}
 	return `WARNING: You are running openclaw-multi as root.

@@ -2,6 +2,7 @@ package deps
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/pdasilem/openclaw-multi/internal/config"
@@ -154,19 +155,24 @@ func mockRenderer(content string) func(string, map[string]string) (string, error
 }
 
 func TestEnsureCloudflaredVariantA(t *testing.T) {
+	t.Setenv("HOME", "/home/test")
 	exec := &shell.MockExecutor{
 		Responses: []shell.ExecResult{
 			shell.OKResponse("cloudflared 2024.1.0"),                               // --version (installed)
+			shell.OKResponse("[]"),                                                 // tunnel list
 			shell.OKResponse("Created tunnel openclaw-multi with id abc-123-uuid"), // tunnel create
-			shell.OKResponse(""), // route dns
-			shell.OKResponse(""), // ingress validate
-			shell.OKResponse(""), // systemctl enable
+			shell.OKResponse(""),                                                   // route dns
+			shell.OKResponse(""),                                                   // ingress validate
+			shell.OKResponse(""),                                                   // systemctl enable
 		},
 	}
 	fs := shell.NewMemFS()
 	cfg := config.Defaults()
 	cfg.Domain = "example.com"
 	cfg.Subdomain = "openclaw"
+	if err := fs.WriteFile("/home/test/.cloudflared/abc-123-uuid.json", []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	err := EnsureCloudflared(context.Background(), exec, fs, mockRenderer("tunnel: ok\n"), cfg, TunnelModeAccount, ConflictOverwrite)
 	if err != nil {
@@ -177,6 +183,110 @@ func TestEnsureCloudflaredVariantA(t *testing.T) {
 	}
 	if _, err := fs.Stat(cfConfigPath); err != nil {
 		t.Error("expected cloudflared config file to be written")
+	}
+	if _, err := fs.Stat("/etc/cloudflared/abc-123-uuid.json"); err != nil {
+		t.Error("expected cloudflared credentials file to be copied")
+	}
+}
+
+func TestEnsureCloudflaredUsesExistingTunnel(t *testing.T) {
+	t.Setenv("HOME", "/home/test")
+	exec := &shell.MockExecutor{
+		Responses: []shell.ExecResult{
+			shell.OKResponse("cloudflared 2024.1.0"),
+			shell.OKResponse(`[{"id":"11111111-2222-3333-4444-555555555555","name":"openclaw-multi"}]`),
+			shell.OKResponse(""),
+			shell.OKResponse(""),
+			shell.OKResponse(""),
+		},
+	}
+	fs := shell.NewMemFS()
+	cfg := config.Defaults()
+	cfg.Domain = "example.com"
+	cfg.Subdomain = "oc"
+	if err := fs.WriteFile("/home/test/.cloudflared/11111111-2222-3333-4444-555555555555.json", []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := EnsureCloudflared(context.Background(), exec, fs, mockRenderer("tunnel: ok\n"), cfg, TunnelModeAccount, ConflictOverwrite)
+	if err != nil {
+		t.Fatalf("EnsureCloudflared existing tunnel: %v", err)
+	}
+	if cfg.TunnelID != "11111111-2222-3333-4444-555555555555" {
+		t.Errorf("TunnelID: got %q", cfg.TunnelID)
+	}
+	for _, call := range exec.Calls {
+		if strings.Join(call.Cmd, " ") == "cloudflared tunnel create openclaw-multi" {
+			t.Fatal("did not expect tunnel create for existing tunnel")
+		}
+	}
+}
+
+func TestEnsureCloudflaredUsesConfiguredTunnelName(t *testing.T) {
+	t.Setenv("HOME", "/home/test")
+	exec := &shell.MockExecutor{
+		Responses: []shell.ExecResult{
+			shell.OKResponse("cloudflared 2024.1.0"),
+			shell.OKResponse(`[{"id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","name":"oc-multi"}]`),
+			shell.OKResponse(""),
+			shell.OKResponse(""),
+			shell.OKResponse(""),
+		},
+	}
+	fs := shell.NewMemFS()
+	cfg := config.Defaults()
+	cfg.Domain = "defiharbor.top"
+	cfg.Subdomain = "oc"
+	cfg.TunnelName = "oc-multi"
+	if err := fs.WriteFile("/home/test/.cloudflared/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.json", []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := EnsureCloudflared(context.Background(), exec, fs, mockRenderer("tunnel: ok\n"), cfg, TunnelModeAccount, ConflictOverwrite); err != nil {
+		t.Fatalf("EnsureCloudflared configured tunnel name: %v", err)
+	}
+
+	calls := joinedCalls(exec)
+	if !hasCall(calls, "cloudflared tunnel --origincert /home/test/.cloudflared/cert.pem list --name oc-multi --output json") {
+		t.Fatalf("expected tunnel list by configured name, got %v", calls)
+	}
+	if !hasCall(calls, "cloudflared tunnel --origincert /home/test/.cloudflared/cert.pem route dns --overwrite-dns oc-multi *.oc.defiharbor.top") {
+		t.Fatalf("expected route by configured name, got %v", calls)
+	}
+}
+
+func TestEnsureCloudflaredUsesConfiguredTunnelIDWithoutLookup(t *testing.T) {
+	t.Setenv("HOME", "/home/test")
+	exec := &shell.MockExecutor{
+		Responses: []shell.ExecResult{
+			shell.OKResponse("cloudflared 2024.1.0"),
+			shell.OKResponse(""),
+			shell.OKResponse(""),
+			shell.OKResponse(""),
+		},
+	}
+	fs := shell.NewMemFS()
+	cfg := config.Defaults()
+	cfg.Domain = "defiharbor.top"
+	cfg.Subdomain = "oc"
+	cfg.TunnelName = ""
+	cfg.TunnelID = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
+	if err := fs.WriteFile("/home/test/.cloudflared/bbbbbbbb-cccc-dddd-eeee-ffffffffffff.json", []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := EnsureCloudflared(context.Background(), exec, fs, mockRenderer("tunnel: ok\n"), cfg, TunnelModeAccount, ConflictOverwrite); err != nil {
+		t.Fatalf("EnsureCloudflared configured tunnel id: %v", err)
+	}
+
+	calls := joinedCalls(exec)
+	for _, call := range calls {
+		if strings.Contains(call, " list ") || strings.Contains(call, " create ") {
+			t.Fatalf("did not expect tunnel list/create when tunnel_id is configured, got %v", calls)
+		}
+	}
+	if !hasCall(calls, "cloudflared tunnel --origincert /home/test/.cloudflared/cert.pem route dns --overwrite-dns bbbbbbbb-cccc-dddd-eeee-ffffffffffff *.oc.defiharbor.top") {
+		t.Fatalf("expected route by configured id, got %v", calls)
 	}
 }
 
@@ -221,9 +331,11 @@ func TestEnsureCloudflaredConflictSkip(t *testing.T) {
 }
 
 func TestEnsureCloudflaredConflictBackup(t *testing.T) {
+	t.Setenv("HOME", "/home/test")
 	exec := &shell.MockExecutor{
 		Responses: []shell.ExecResult{
 			shell.OKResponse("cloudflared 2024.1.0"),
+			shell.OKResponse("[]"),
 			shell.OKResponse("Created tunnel openclaw-multi with id xyz-789"),
 			shell.OKResponse(""),
 			shell.OKResponse(""),
@@ -236,6 +348,9 @@ func TestEnsureCloudflaredConflictBackup(t *testing.T) {
 	}
 	cfg := config.Defaults()
 	cfg.Domain = "ex.com"
+	if err := fs.WriteFile("/home/test/.cloudflared/xyz-789.json", []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	err := EnsureCloudflared(context.Background(), exec, fs, mockRenderer("backup-test\n"), cfg, TunnelModeAccount, ConflictBackup)
 	if err != nil {
@@ -308,6 +423,23 @@ func TestEnsureUFWActiveAddsMissingPort(t *testing.T) {
 	}
 }
 
+func joinedCalls(exec *shell.MockExecutor) []string {
+	calls := make([]string, 0, len(exec.Calls))
+	for _, call := range exec.Calls {
+		calls = append(calls, strings.Join(call.Cmd, " "))
+	}
+	return calls
+}
+
+func hasCall(calls []string, want string) bool {
+	for _, call := range calls {
+		if call == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestParseUFWStatus(t *testing.T) {
 	output := `Status: active
 
@@ -330,21 +462,26 @@ Default: allow (outgoing)
 }
 
 func TestInstallCloudflaredCalled(t *testing.T) {
+	t.Setenv("HOME", "/home/test")
 	// cloudflared not installed → installCloudflared should be called
 	exec := &shell.MockExecutor{
 		Responses: []shell.ExecResult{
 			{ExitCode: 127},      // --version fails
 			shell.OKResponse(""), // curl download
 			shell.OKResponse(""), // dpkg -i
-			shell.OKResponse("Created tunnel openclaw-multi with id new-id"),
+			shell.OKResponse("[]"),
+			shell.OKResponse("Created tunnel openclaw-multi with id 99999999-8888-7777-6666-555555555555"),
 			shell.OKResponse(""), // route dns
 			shell.OKResponse(""), // ingress validate
 			shell.OKResponse(""), // systemctl enable
 		},
-		Errors: []error{shell.ErrNonZeroExit{ExitCode: 127}, nil, nil, nil, nil, nil, nil},
+		Errors: []error{shell.ErrNonZeroExit{ExitCode: 127}, nil, nil, nil, nil, nil, nil, nil},
 	}
 	fs := shell.NewMemFS()
 	cfg := config.Defaults()
+	if err := fs.WriteFile("/home/test/.cloudflared/99999999-8888-7777-6666-555555555555.json", []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	cfg.Domain = "example.com"
 	err := EnsureCloudflared(context.Background(), exec, fs, mockRenderer("c"), cfg, TunnelModeAccount, ConflictOverwrite)
 	if err != nil {

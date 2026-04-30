@@ -16,6 +16,7 @@ var ErrNotFound = errors.New("config file not found")
 type OverlayConfig struct {
 	Domain                     string        `yaml:"domain"`
 	Subdomain                  string        `yaml:"subdomain"`
+	TunnelName                 string        `yaml:"tunnel_name"`
 	TunnelID                   string        `yaml:"tunnel_id"`
 	TunnelMode                 string        `yaml:"tunnel_mode"` // "account" | "quick"
 	CloudflareZoneID           string        `yaml:"cloudflare_zone_id"`
@@ -37,6 +38,7 @@ type Notifications struct {
 func Defaults() *OverlayConfig {
 	return &OverlayConfig{
 		Subdomain:      "openclaw",
+		TunnelName:     "openclaw-multi",
 		TunnelMode:     "account",
 		PortRangeStart: 18789,
 		PortRangeStep:  20,

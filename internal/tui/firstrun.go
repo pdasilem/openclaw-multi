@@ -34,14 +34,14 @@ func (f firstRunModel) Update(msg tea.Msg) (firstRunModel, tea.Cmd) {
 	if !ok {
 		return f, nil
 	}
-	switch km.String() {
-	case "y", "Y", "enter":
+	switch strings.ToLower(km.String()) {
+	case "y", "enter":
 		if err := f.persistAdmin(); err != nil {
 			f.err = err.Error()
 			return f, nil
 		}
 		return f, func() tea.Msg { return firstRunDoneMsg{} }
-	case "ctrl+c", "q":
+	case "ctrl+c", "q", "esc":
 		return f, tea.Quit
 	}
 	return f, nil

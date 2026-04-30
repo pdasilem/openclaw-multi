@@ -497,10 +497,14 @@ overlay идемпотентен, см. §2.5).
    Бесплатный тариф Cloudflare даёт всё нужное.
    - Запросить email + API token (или `cloudflared login` через OAuth).
    - Запросить домен (`<your-domain>`) и поддомен для overlay (по
-     умолчанию `openclaw`).
-   - `cloudflared tunnel create openclaw-multi`.
+      умолчанию `openclaw`).
+   - Запросить имя named tunnel (`<tunnel_name>`), например `oc-multi`.
+   - Если `tunnel_id` уже задан, использовать его как источник истины.
+     Если `tunnel_id` пустой, проверить существование `<tunnel_name>` через
+     `cloudflared tunnel list --name <tunnel_name> --output json` и создать
+     tunnel только если он отсутствует.
    - Записать DNS-CNAME `*.openclaw.<your-domain>` →
-     `<tunnel-id>.cfargotunnel.com`.
+      `<tunnel-id>.cfargotunnel.com`.
    - Сгенерировать `/etc/cloudflared/config.yml` с пустым ingress
      (только catch-all 404).
    - Установить `cloudflared.service` (systemd).

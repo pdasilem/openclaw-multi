@@ -24,10 +24,15 @@ func newTestLogger(t *testing.T) (*Logger, string) {
 	return l, path
 }
 
-func TestNewReturnsErrorForInvalidPath(t *testing.T) {
-	_, err := New("/nonexistent-dir-openclaw-test/audit.log")
-	if err == nil {
-		t.Fatal("expected error for invalid path")
+func TestNewCreatesParentDir(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "audit.log")
+	l, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = l.Close() })
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("stat audit log: %v", err)
 	}
 }
 

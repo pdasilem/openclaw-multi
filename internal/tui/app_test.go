@@ -31,6 +31,15 @@ func TestModelUpdateQKeyOnMainMenu(t *testing.T) {
 	}
 }
 
+func TestModelUpdateUpperQKeyOnMainMenu(t *testing.T) {
+	m := newModel(nil, nil, "testhost", "")
+	m.screen = screenMainMenu
+	_, cmd := m.Update(keyText("Q"))
+	if cmd == nil {
+		t.Error("expected quit cmd when pressing Q on main menu")
+	}
+}
+
 func TestModelUpdateWindowSize(t *testing.T) {
 	m := newModel(nil, nil, "testhost", "")
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})

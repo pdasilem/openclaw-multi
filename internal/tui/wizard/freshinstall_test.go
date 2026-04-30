@@ -89,10 +89,12 @@ func TestStepTailscale_NotInstalled_NonInteractive(t *testing.T) {
 // --- StepCloudflared ---
 
 func TestStepCloudflared_VariantA(t *testing.T) {
+	t.Setenv("HOME", "/home/test")
 	exec := &shell.MockExecutor{
 		Responses: []shell.ExecResult{
 			shell.OKResponse("cloudflared 2024.1.0"),
-			shell.OKResponse("Created tunnel openclaw-multi with id test-uuid-abc"),
+			shell.OKResponse("[]"),
+			shell.OKResponse("Created tunnel openclaw-multi with id 12345678-1234-1234-1234-123456789abc"),
 			shell.OKResponse(""),
 			shell.OKResponse(""),
 			shell.OKResponse(""),
@@ -101,6 +103,9 @@ func TestStepCloudflared_VariantA(t *testing.T) {
 	fs := shell.NewMemFS()
 	cfg := config.Defaults()
 	cfg.Domain = "example.com"
+	if err := fs.WriteFile("/home/test/.cloudflared/12345678-1234-1234-1234-123456789abc.json", []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	s := &StepCloudflared{
 		exec: exec,
@@ -114,7 +119,7 @@ func TestStepCloudflared_VariantA(t *testing.T) {
 	if err := s.Run(context.Background()); err != nil {
 		t.Fatalf("StepCloudflared VariantA: %v", err)
 	}
-	if cfg.TunnelID != "test-uuid-abc" {
+	if cfg.TunnelID != "12345678-1234-1234-1234-123456789abc" {
 		t.Errorf("TunnelID: got %q", cfg.TunnelID)
 	}
 }

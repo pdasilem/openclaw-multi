@@ -3,6 +3,10 @@ package deps
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/user"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -30,6 +34,8 @@ const (
 	cfConfigPath  = "/etc/cloudflared/config.yml"
 	cfServiceName = "cloudflared"
 )
+
+var tunnelIDPattern = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
 
 // EnsureCloudflared installs and configures cloudflared idempotently.
 func EnsureCloudflared(
@@ -103,29 +109,54 @@ func setupAccountTunnel(
 	renderer func(string, map[string]string) (string, error),
 	cfg *config.OverlayConfig,
 ) error {
-	// Create named tunnel.
-	res, err := exec.Run(ctx, shell.ExecOpts{
-		Cmd: []string{"cloudflared", "tunnel", "create", "openclaw-multi"},
-	})
+	cli, err := cloudflaredAccountCLI()
 	if err != nil {
-		return fmt.Errorf("cloudflared tunnel create: %w", err)
+		return err
 	}
-	tunnelID := parseTunnelID(res.Stdout)
+
+	tunnelName := strings.TrimSpace(cfg.TunnelName)
+	tunnelID := strings.TrimSpace(cfg.TunnelID)
+	tunnelRef := tunnelID
 	if tunnelID == "" {
-		return fmt.Errorf("could not parse tunnel ID from: %q", res.Stdout)
+		if tunnelName == "" {
+			return fmt.Errorf("cloudflared tunnel_name is required when tunnel_id is empty")
+		}
+		tunnelID, err = findExistingTunnel(ctx, exec, cli, tunnelName)
+		if err != nil {
+			return err
+		}
+	}
+	if tunnelID == "" {
+		res, err := exec.Run(ctx, shell.ExecOpts{
+			Cmd: cli.command("tunnel", "create", tunnelName),
+		})
+		if err != nil {
+			return fmt.Errorf("cloudflared tunnel create: %w", err)
+		}
+		tunnelID = parseTunnelID(res.Stdout + "\n" + res.Stderr)
+		tunnelRef = tunnelName
+	} else if tunnelName != "" {
+		tunnelRef = tunnelName
+	}
+	if tunnelID == "" {
+		return fmt.Errorf("could not determine tunnel ID for %q", tunnelName)
 	}
 	cfg.TunnelID = tunnelID
 
 	// Route DNS.
 	wildcardDomain := fmt.Sprintf("*.%s.%s", cfg.Subdomain, cfg.Domain)
 	if _, err := exec.Run(ctx, shell.ExecOpts{
-		Cmd: []string{"cloudflared", "tunnel", "route", "dns", "openclaw-multi", wildcardDomain},
+		Cmd: cli.command("tunnel", "route", "dns", "--overwrite-dns", tunnelRef, wildcardDomain),
 	}); err != nil {
 		return fmt.Errorf("cloudflared route dns: %w", err)
 	}
 
 	// Render and write config.
 	credFile := fmt.Sprintf("%s/%s.json", cfCredPath, tunnelID)
+	if err := installTunnelCredentials(fs, cli.credentialsPath(tunnelID), credFile); err != nil {
+		return err
+	}
+	cfg.CloudflaredCredentialsFile = credFile
 	content, err := renderer("templates/cloudflared-config.tmpl", map[string]string{
 		"TUNNEL_ID":               tunnelID,
 		"TUNNEL_CREDENTIALS_FILE": credFile,
@@ -154,6 +185,72 @@ func setupAccountTunnel(
 	return nil
 }
 
+type accountCLI struct {
+	user       string
+	home       string
+	originCert string
+}
+
+func cloudflaredAccountCLI() (accountCLI, error) {
+	if os.Getuid() != 0 {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return accountCLI{}, fmt.Errorf("detect cloudflared user home: %w", err)
+		}
+		return accountCLI{home: home, originCert: filepath.Join(home, ".cloudflared", "cert.pem")}, nil
+	}
+	sudoUser := os.Getenv("SUDO_USER")
+	if sudoUser == "" || sudoUser == "root" {
+		return accountCLI{}, fmt.Errorf("cloudflared account setup must run as sudo from the admin user, not from a root shell")
+	}
+	u, err := user.Lookup(sudoUser)
+	if err != nil {
+		return accountCLI{}, fmt.Errorf("lookup SUDO_USER %q: %w", sudoUser, err)
+	}
+	return accountCLI{
+		user:       sudoUser,
+		home:       u.HomeDir,
+		originCert: filepath.Join(u.HomeDir, ".cloudflared", "cert.pem"),
+	}, nil
+}
+
+func (c accountCLI) command(args ...string) []string {
+	cmd := []string{"cloudflared", "tunnel", "--origincert", c.originCert}
+	if len(args) > 0 && args[0] == "tunnel" {
+		args = args[1:]
+	}
+	cmd = append(cmd, args...)
+	if c.user == "" {
+		return cmd
+	}
+	return append([]string{"sudo", "-u", c.user, "-H"}, cmd...)
+}
+
+func (c accountCLI) credentialsPath(tunnelID string) string {
+	return filepath.Join(c.home, ".cloudflared", tunnelID+".json")
+}
+
+func findExistingTunnel(ctx context.Context, exec shell.Executor, cli accountCLI, tunnelName string) (string, error) {
+	res, err := exec.Run(ctx, shell.ExecOpts{
+		Cmd: cli.command("tunnel", "list", "--name", tunnelName, "--output", "json"),
+	})
+	if err != nil {
+		return "", fmt.Errorf("cloudflared tunnel list: %w", err)
+	}
+	return parseTunnelID(res.Stdout + "\n" + res.Stderr), nil
+}
+
+func installTunnelCredentials(fs shell.FS, sourcePath, targetPath string) error {
+	data, err := fs.ReadFile(sourcePath)
+	if err != nil {
+		return fmt.Errorf("read cloudflared tunnel credentials %q: %w", sourcePath, err)
+	}
+	if err := fs.WriteFile(targetPath, data, 0o600); err != nil {
+		return fmt.Errorf("write cloudflared tunnel credentials %q: %w", targetPath, err)
+	}
+	return nil
+}
+
 func setupQuickTunnel(_ context.Context, exec shell.Executor, fs shell.FS, cfg *config.OverlayConfig) error {
 	// Write a minimal quick-tunnel config.
 	content := "# cloudflared quick tunnel — ephemeral URL, no account required\n" +
@@ -169,6 +266,9 @@ func setupQuickTunnel(_ context.Context, exec shell.Executor, fs shell.FS, cfg *
 // parseTunnelID extracts the tunnel UUID from `cloudflared tunnel create` output.
 // Output contains a line like: "Created tunnel openclaw-multi with id <uuid>"
 func parseTunnelID(output string) string {
+	if id := tunnelIDPattern.FindString(output); id != "" {
+		return id
+	}
 	for _, line := range strings.Split(output, "\n") {
 		if strings.Contains(line, "with id") {
 			parts := strings.Fields(line)

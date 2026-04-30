@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	_ "modernc.org/sqlite" // register sqlite driver
@@ -35,6 +37,9 @@ type Store struct {
 func Open(ctx context.Context, path string) (*Store, error) {
 	if path == "" {
 		path = defaultDBPath
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("mkdir state dir %q: %w", filepath.Dir(path), err)
 	}
 	db, err := sql.Open("sqlite", path)
 	if err != nil {

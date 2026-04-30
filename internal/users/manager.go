@@ -391,7 +391,7 @@ func (m *Manager) bootstrapTenantRuntime(ctx context.Context, username string) e
 		". \"$NVM_DIR/nvm.sh\"",
 		"nvm install " + shellQuote(nodeVersion),
 		"nvm use " + shellQuote(nodeVersion),
-		"npm install --global openclaw@latest",
+		"npm install --global github:pdasilem/openclaw#latest",
 		"mkdir -p \"$HOME/.local/bin\"",
 	}, "\n")
 	return m.run(ctx, []string{"su", "-", username, "-c", script}, nil)

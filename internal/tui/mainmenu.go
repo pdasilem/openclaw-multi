@@ -49,7 +49,7 @@ func (m mainMenuModel) Init() tea.Cmd { return nil }
 func (m mainMenuModel) Update(msg tea.Msg) (mainMenuModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
+		switch strings.ToLower(msg.String()) {
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--

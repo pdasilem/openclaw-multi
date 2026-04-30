@@ -1,197 +1,299 @@
-# Установка
+# Установка до запуска OpenClaw Multi
 
-> **Важно:** этот документ описывает установочный поток OpenClaw Multi.
-> Реальная проверка выполняется владельцем на VPS по шагам из
-> [`docs/vps-runbook.md`](vps-runbook.md) и
-> [`docs/e2e-use-cases.md`](e2e-use-cases.md).
+Этот документ доводит VPS до состояния, когда можно выполнить команду
+`openclaw-multi`. Дальше запуск TUI, `Fresh install`, создание tenant users,
+публикация routes, логи и E2E идут по [`docs/vps-runbook.md`](vps-runbook.md).
 
-## Целевая VPS
+## Роли
 
-- ОС: Ubuntu 24.
-- Доступ: SSH уже настроен.
-- Админ на VPS: пользователь `ubuntu`.
-- Root-доступ: настроен без пароля через `su`.
-- Multi-tenant модель: один OpenClaw tenant = один Linux user на VPS.
+- `ubuntu` — SSH admin и владелец checkout `/home/ubuntu/openclaw-multi`.
+- `root` — установка бинарников в `/usr/local/bin`, установка системных
+  пакетов, подготовка `/etc/cloudflared`.
+- `tailscaled` — admin-only доступ к VPS по tailnet. Managed users не получают
+  Tailscale identity.
+- `<username>` — tenant Linux user.
 
-## Предусловия
-
-- VPS доступна по SSH.
-- У пользователя `ubuntu` есть доступ к root.
-- Есть исходники `openclaw-multi` или готовые бинарники.
-- Есть домен и Cloudflare account/named tunnel для стабильных публичных URL.
-- VPS имеет исходящий интернет-доступ.
-
-Минимальные ресурсы:
-
-- 5 GB свободного диска или больше;
-- 1 GB RAM или больше.
-
-## Запуск установочного мастера
-
-Подключиться к VPS:
+## Подключение
 
 ```bash
 ssh ubuntu@<vps-host>
 ```
 
-Перейти в root shell для системной установки:
+Проверить ОС и shell context:
 
 ```bash
-su -
+cat /etc/os-release
+id
+pwd
 ```
 
-Переключиться внутрь tenant из root shell:
+Ожидаемо:
+
+- Ubuntu 24.
+- текущий пользователь: `ubuntu`.
+- root shell доступен через passwordless `sudo -i`.
+
+## Tailscale и UFW
+
+На VPS admin SSH идет через Tailscale. UFW должен сохранять закрытый public
+inbound и не должен блокировать текущую SSH-сессию.
+
+Перед любыми установочными действиями проверить текущий SSH endpoint:
 
 ```bash
-su - <username>
+echo "$SSH_CONNECTION"
+tailscale ip -4
+tailscale status
+systemctl is-active tailscaled
+sudo -i
+ufw status verbose
+exit
 ```
 
-Запустить OpenClaw Multi:
+Ожидаемо:
+
+- `tailscaled` active;
+- `tailscale status` показывает logged-in node;
+- remote IP из `SSH_CONNECTION` находится в tailnet;
+- UFW active;
+- SSH разрешен через tailnet/Tailscale interface. Валидный текущий вариант:
+  `Anywhere on tailscale0 ALLOW IN Anywhere`;
+- public inbound остается закрытым.
+
+Если в UFW уже есть `ALLOW IN` на весь `tailscale0`, отдельное правило для
+`22/tcp` не добавлять. Если нет ни широкого `tailscale0` allow, ни явного SSH
+allow на `tailscale0`, добавить SSH-доступ до любых дальнейших изменений
+firewall:
 
 ```bash
-openclaw-multi
+sudo -i
+ufw allow in on tailscale0 to any port 22 proto tcp comment 'admin ssh via tailscale'
+ufw status verbose
+exit
 ```
 
-В TUI выбрать:
+Не выполнять `ufw reset`. Не выполнять `tailscale up` при уже авторизованном
+tailnet node. OpenClaw Multi не выдает Tailscale identity managed users:
+Tailscale здесь только admin-доступ к VPS.
 
-```text
-1. Fresh install
-```
+Не удалять существующие не-OpenClaw правила без отдельного решения владельца
+VPS.
 
-## Что делает Fresh Install
+Если `tailscale` или `tailscaled` отсутствует, остановить установку
+OpenClaw Multi, поставить и авторизовать Tailscale по официальной инструкции
+для Ubuntu 24.04, затем вернуться к этому разделу:
+<https://tailscale.com/kb/1031/install-linux>
 
-Мастер выполняет установочные шаги по порядку.
+## Системные пакеты
 
-| Шаг | Что проверяется или настраивается |
-| --- | --- |
-| Pre-flight | Дистрибутив, диск, RAM, системные команды, конфликты портов |
-| Node.js | Не ставится в system-space; Node.js `24` ставится позже внутри tenant через `nvm` |
-| Tailscale | Системная установка и admin-only диагностика |
-| Cloudflare Tunnel | Account/named tunnel или quick tunnel для тестов |
-| UFW | Консервативная firewall-настройка без сброса чужих правил |
-| Host hardening | sysctl, hidepid, `/etc/profile.d/openclaw.sh`, `/var/cache/openclaw-compile` |
-| OpenClaw CLI | CLI ставится через `nvm`/npm в user context из `pdasilem/openclaw:latest`; tenant onboarding выполняется отдельно |
-| overlay-API | Systemd unit для `/usr/local/bin/openclaw-overlay-api` |
-| State/config | `/etc/openclaw-multi/config.yml`, `state.db`, audit log |
-
-Fresh Install не является созданием tenant. Tenant создается позже через:
-
-```text
-3. User management
-```
-
-## Cloudflare Tunnel
-
-Рекомендуемый вариант для VPS:
-
-- Cloudflare account/named tunnel.
-- Wildcard DNS:
-
-```text
-*.openclaw.<domain> -> <tunnel_id>.cfargotunnel.com
-```
-
-Quick tunnel допустим только для временной проверки, потому что URL меняется
-после рестарта `cloudflared`.
-
-## После установки
-
-Проверить системные сервисы:
+Проверить команды:
 
 ```bash
-systemctl is-active tailscaled cloudflared openclaw-overlay-api
-systemctl status cloudflared openclaw-overlay-api --no-pager
-```
-
-Проверить основные файлы:
-
-```bash
-test -f /etc/openclaw-multi/config.yml
-test -f /var/lib/openclaw-multi/state.db
-test -f /var/log/openclaw-multi/audit.log
-test -S /run/openclaw-overlay.sock
-```
-
-Дальше создать первого tenant:
-
-```text
-3. User management -> Add user
-```
-
-После создания Linux пользователя OpenClaw Multi запускает non-interactive
-OpenClaw onboarding под этим пользователем. Этот порядок описан в
-[`docs/vps-runbook.md`](vps-runbook.md).
-
-## Типовые проблемы
-
-**Проверка системных команд**
-
-Сначала проверить наличие команд:
-
-```bash
-for cmd in useradd userdel loginctl systemctl ss sqlite3 git make; do
+for cmd in git make go sqlite3 useradd userdel loginctl systemctl ss ufw tailscale curl; do
   command -v "$cmd" >/dev/null || echo "missing: $cmd"
 done
 ```
 
-Только если команда отсутствует, поставить соответствующий пакет через `apt`.
-Для `useradd`/`userdel` пакет:
+Поставить отсутствующие пакеты из root shell:
 
 ```bash
+sudo -i
 apt-get update
-apt-get install -y passwd
+apt-get install -y git make golang-go sqlite3 passwd systemd ufw curl ca-certificates
+exit
 ```
 
-**Node.js и OpenClaw CLI**
+`tailscale` не ставится этим `apt-get install`: он должен уже быть
+установлен и авторизован до продолжения установки OpenClaw Multi.
 
-Fresh Install не ставит Node.js или OpenClaw CLI в system-space. Единственный
-актуальный путь: при создании managed user OpenClaw Multi готовит tenant
-runtime внутри `/home/<username>` через `nvm`, ставит Node.js `24`,
-tenant-scoped OpenClaw CLI из `pdasilem/openclaw:latest`, затем запускает
-non-interactive onboarding через `/home/<username>/.local/bin/openclaw`.
-Команда обновления OpenClaw задается настройкой `openclaw_update_command`.
+## Установка cloudflared
 
-**Tailscale уже есть**
-
-Перед изменением проверять:
-
-```bash
-command -v tailscale
-systemctl is-active tailscaled
-tailscale status
-```
-
-Если Tailscale уже авторизован, identity не сбрасывать и `tailscale up` повторно
-не запускать. Если binary есть, но login отсутствует, использовать `tailscale up
---ssh` только для admin-доступа.
-
-**Cloudflared уже есть**
-
-Перед изменением проверять:
+Проверить наличие:
 
 ```bash
 command -v cloudflared
-test -f ~/.cloudflared/cert.pem || test -f /etc/cloudflared/cert.pem
-test -f /etc/cloudflared/config.yml
+cloudflared --version
 ```
 
-Если `/etc/cloudflared/config.yml` существует, перед перезаписью делать
-timestamped backup и подтверждать overwrite. Credentials file по умолчанию:
-`/etc/cloudflared/<tunnel_id>.json`; перед публикацией маршрутов файл должен
-существовать.
-
-**Конфликт портов**
-
-Найти слушателя:
+Если `cloudflared` отсутствует, поставить stable package из официального
+Cloudflare apt repository для Ubuntu 24.04 `noble`:
 
 ```bash
-ss -ltnup
+sudo -i
+install -d -m 0755 /usr/share/keyrings
+curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /usr/share/keyrings/cloudflare-main.gpg
+chmod 0644 /usr/share/keyrings/cloudflare-main.gpg
+printf '%s\n' 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared noble main' > /etc/apt/sources.list.d/cloudflared.list
+apt-get update
+apt-get install -y cloudflared
+cloudflared --version
+exit
 ```
 
-Освободить порт или поменять диапазон в `/etc/openclaw-multi/config.yml`.
+Официальная страница установки:
+<https://pkg.cloudflare.com/>.
 
-**UFW уже настроен**
+## Репозиторий
 
-Мастер не должен сбрасывать существующие правила. Он добавляет только
-недостающие разрешения. Если нужна чистая firewall-конфигурация, решение о
-`ufw reset` принимается вручную владельцем VPS.
+Клонировать repo как `ubuntu`:
+
+```bash
+cd /home/ubuntu
+git clone https://github.com/pdasilem/openclaw-multi.git
+cd /home/ubuntu/openclaw-multi
+git status --short
+```
+
+Если repo уже есть:
+
+```bash
+cd /home/ubuntu/openclaw-multi
+git status --short
+git pull --ff-only
+```
+
+## Сборка
+
+Собрать бинарники как `ubuntu`:
+
+```bash
+cd /home/ubuntu/openclaw-multi
+make build
+```
+
+Ожидаемые артефакты:
+
+```text
+bin/openclaw-multi
+bin/openclaw-overlay-api
+bin/openclaw-overlay-watcher
+```
+
+## Установка бинарников
+
+Установить бинарники в system-space из root shell:
+
+```bash
+sudo -i
+cd /home/ubuntu/openclaw-multi
+make install
+exit
+```
+
+Проверить уже после `exit`, под пользователем `ubuntu`. Бинарники лежат в
+`/usr/local/bin`, поэтому должны находиться из обычной SSH-сессии:
+
+```bash
+command -v openclaw-multi
+command -v openclaw-overlay-api
+command -v openclaw-overlay-watcher
+```
+
+## Cloudflare named tunnel
+
+Для стабильных публичных URL нужен named tunnel и wildcard DNS:
+
+```text
+https://gateway-<username>.<subdomain>.<domain>
+https://<plugin-route>.<subdomain>.<domain>
+```
+
+Подготовить в Cloudflare:
+
+- domain `<domain>` добавлен в Cloudflare zone и имеет статус `Active`;
+- у регистратора домена выставлены Cloudflare nameservers для этой zone;
+- есть Zone ID этой zone;
+- есть API token с правом `Zone:DNS:Edit` для этой zone;
+- есть named tunnel с выбранным именем, например `oc-multi`;
+- wildcard DNS указывает на tunnel:
+  `*.<subdomain>.<domain> -> <tunnel_id>.cfargotunnel.com`.
+
+Что значит Cloudflare zone:
+
+- `<domain>` — реальный домен, например `example.com`;
+- zone — запись этого домена в Cloudflare account;
+- после добавления домена Cloudflare выдает nameservers;
+- эти nameservers нужно прописать у регистратора домена;
+- когда Cloudflare подтвердит nameservers, zone станет `Active`;
+- Zone ID берется в dashboard на странице домена.
+
+Официальные инструкции Cloudflare:
+
+- Add domain / onboard zone:
+  <https://developers.cloudflare.com/fundamentals/manage-domains/add-site/>
+- Cloudflare Tunnel overview:
+  <https://developers.cloudflare.com/tunnel/>
+- Create locally-managed tunnel:
+  <https://developers.cloudflare.com/tunnel/advanced/local-management/create-local-tunnel/>
+- Tunnel DNS routing:
+  <https://developers.cloudflare.com/tunnel/routing/>
+
+Создать locally-managed tunnel через `cloudflared` CLI на VPS.
+Cloudflare-команды выполнять как `ubuntu`, не из root shell. Это важно:
+`cloudflared` пишет `cert.pem` и `<tunnel_id>.json` в default directory
+текущего пользователя.
+
+```bash
+cloudflared tunnel login
+cloudflared tunnel create <tunnel_name>
+cloudflared tunnel route dns <tunnel_name> "*.<subdomain>.<domain>"
+cloudflared tunnel list
+```
+
+После `cloudflared tunnel create` взять `tunnel_id` и точный путь к credentials
+file из вывода команды. При запуске под `ubuntu` ожидаемые пути:
+
+```text
+/home/ubuntu/.cloudflared/cert.pem
+/home/ubuntu/.cloudflared/<tunnel_id>.json
+```
+
+Для OpenClaw Multi credentials file должен быть установлен в system path:
+
+```text
+/etc/cloudflared/<tunnel_id>.json
+```
+
+Причина: файл в `/home/ubuntu/.cloudflared` принадлежит интерактивному
+admin-пользователю и нужен для CLI-операций. Runtime `cloudflared` service и
+OpenClaw Multi используют стабильный system path из `/etc/cloudflared`, чтобы
+работа tunnel не зависела от home directory пользователя `ubuntu`.
+
+Это обязательный шаг после `cloudflared tunnel create`:
+
+```bash
+sudo -i
+install -d -m 0755 /etc/cloudflared
+install -m 0600 /home/ubuntu/.cloudflared/<tunnel_id>.json /etc/cloudflared/<tunnel_id>.json
+ls -l /home/ubuntu/.cloudflared/<tunnel_id>.json
+ls -l /etc/cloudflared/<tunnel_id>.json
+exit
+```
+
+Данные для `openclaw-multi`:
+
+```yaml
+domain: <domain>
+subdomain: <subdomain>
+tunnel_name: <tunnel_name>
+tunnel_id: <tunnel_id>
+tunnel_mode: account
+cloudflare_zone_id: <zone-id>
+cloudflare_api_token: <token-with-dns-edit>
+cloudflared_credentials_file: /etc/cloudflared/<tunnel_id>.json
+```
+
+## Готовность к запуску
+
+Перед переходом в runbook должно выполняться:
+
+```bash
+command -v openclaw-multi
+command -v openclaw-overlay-api
+command -v openclaw-overlay-watcher
+command -v cloudflared
+test -d /home/ubuntu/openclaw-multi
+test -f /etc/cloudflared/<tunnel_id>.json
+```
+
+Следующий документ: [`docs/vps-runbook.md`](vps-runbook.md).

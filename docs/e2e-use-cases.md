@@ -96,13 +96,19 @@ or already had OpenClaw/cloudflared/Tailscale state.
 **Preconditions.**
 
 - Clean Ubuntu VPS or disposable test VPS.
-- SSH access as admin user `ubuntu`.
-- Root shell is available through `su -`.
+- SSH access as admin user `ubuntu` through Tailscale.
+- Root shell is available through passwordless `sudo -i` for manual system
+  checks.
+- `openclaw-multi` is started as `ubuntu` through `sudo openclaw-multi`, not
+  from a `sudo -i` root shell.
+- `tailscaled` is active and logged in.
+- UFW keeps public inbound closed and allows admin SSH through Tailscale.
 - No production OpenClaw data on the host.
 
 **Steps.**
 
-1. Start `openclaw-multi`.
+1. Start `openclaw-multi` with `sudo openclaw-multi` from the `ubuntu` SSH
+   session.
 2. Complete the first-run admin setup.
 3. Run menu item `1. Fresh install`.
 4. Choose the account/named Cloudflare Tunnel path when credentials are

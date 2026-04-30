@@ -123,8 +123,8 @@ systemctl --user status openclaw-overlay-watcher --no-pager
 exit
 ```
 
-На VPS админский пользователь - `ubuntu`, root shell доступен без пароля через
-`su -`. Для ручной проверки tenant boundary из root shell:
+На VPS админский пользователь - `ubuntu`, root shell доступен через
+passwordless `sudo -i`. Для ручной проверки tenant boundary из root shell:
 
 ```bash
 su - <user>

@@ -83,7 +83,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case tea.KeyMsg:
-		switch msg.String() {
+		switch strings.ToLower(msg.String()) {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "q":

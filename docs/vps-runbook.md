@@ -9,122 +9,74 @@ onboarding внутри tenant, и какие логи/снимки состоя
 ## Контекст VPS
 
 - ОС: Ubuntu 24.
-- SSH доступ есть.
+- SSH доступ есть через Tailscale.
 - Админский пользователь на VPS: `ubuntu`.
-- Root-доступ: без пароля через `su`.
+- Root-доступ: passwordless `sudo`; root shell через `sudo -i`.
+- `tailscaled` используется только для admin-доступа к VPS.
+- UFW сохраняет public inbound закрытым; SSH должен оставаться доступен через
+  tailnet/Tailscale interface. Текущий валидный layout: `ALLOW IN` на весь
+  `tailscale0`, без отдельного `22/tcp` правила.
 - Multi-tenant модель: один OpenClaw tenant = один Linux user на VPS.
 - `openclaw-multi` владеет lifecycle managed Linux user: create, activate,
   pause, remove.
 - `openclaw onboard` не создает tenant. Он выполняется позже внутри уже
   созданного Linux пользователя.
 
-Подключение:
+Роли в runbook:
+
+- `ubuntu` — SSH admin и владелец checkout `/home/ubuntu/openclaw-multi`.
+- `root` — системная установка overlay, запись `/usr/local/bin`, `/etc`,
+  `/var/lib`, `/var/log`, systemd units, cloudflared config, создание Linux
+  users.
+- `<username>` — tenant Linux user, который появляется только после
+  `User management -> Add user`. До создания tenant переключаться некуда.
+
+Подключиться к VPS как admin:
 
 ```bash
 ssh ubuntu@<vps-host>
 ```
 
-Root shell:
+Перейти в root shell нужно только для ручных команд, которые меняют системное
+состояние вне TUI:
 
 ```bash
-su -
+sudo -i
 ```
 
-Соглашение по командам:
+Соглашение:
 
-- системные команды выполнять из root shell после `su -`;
-- команды внутри tenant выполнять из root shell через `su - <username>`;
-- не смешивать root context и tenant context в одном шаге.
+- checkout и сборка выполняются как `ubuntu`;
+- установка бинарников и системные операции выполняются как `root`;
+- `openclaw-multi` запускать как `ubuntu` через `sudo openclaw-multi`;
+- не запускать `openclaw-multi` из `sudo -i`: тогда процесс видит себя как
+  root-admin и показывает предупреждение про root antipattern;
+- внутрь tenant переключаться только после создания user:
+  `su - <username>`;
+- в примерах `<username>` заменить на реально созданного tenant, например
+  `alice`.
 
-## Предварительная проверка
+## Перед запуском
 
-Запустить на VPS до изменения сервисов:
+Перед этим runbook выполнить [`docs/install.md`](install.md).
 
-```bash
-lsb_release -a || cat /etc/os-release
-uname -a
-id
-systemctl --version
-node --version || true
-npm --version || true
-go version || true
-cloudflared --version || true
-tailscale version || true
-tailscale status || true
-ufw status verbose || true
-```
-
-Ожидаемо:
-
-- Ubuntu 24.
-- `ubuntu` может получить root shell.
-- Есть исходящий интернет.
-- Есть Cloudflare account/named tunnel или данные для его создания.
-- Есть домен для wildcard DNS.
-- Node.js для tenant runtime: `24`; ставим через `nvm`, не в root-каталог.
-- OpenClaw update source по умолчанию: `pdasilem/openclaw:latest`.
-
-Проверить системные команды до установки пакетов:
-
-```bash
-for cmd in useradd userdel loginctl systemctl ss sqlite3 git make; do
-  command -v "$cmd" >/dev/null || echo "missing: $cmd"
-done
-```
-
-Недостающие пакеты ставить только после этой проверки.
-
-Перед изменением уже установленных сетевых компонентов:
-
-```bash
-command -v tailscale && systemctl is-active tailscaled && tailscale status
-command -v cloudflared
-test -f ~/.cloudflared/cert.pem || test -f /etc/cloudflared/cert.pem || true
-test -f /etc/cloudflared/config.yml || true
-```
-
-Если Tailscale уже авторизован, не сбрасывать identity и не запускать повторный
-`tailscale up`. Если `cloudflared` config уже существует, перед overwrite делать
-timestamped backup.
-
-## Сборка OpenClaw Multi
-
-Если собираем на VPS:
-
-```bash
-cd ~/openclaw-multi
-git status --short
-git pull --ff-only
-make build
-su -
-cd /home/ubuntu/openclaw-multi
-make install
-exit
-```
-
-Проверить бинарники:
+Проверить готовность:
 
 ```bash
 command -v openclaw-multi
 command -v openclaw-overlay-api
 command -v openclaw-overlay-watcher
-```
-
-Если бинарники собирались локально, скопировать их на VPS и установить в
-`/usr/local/bin`:
-
-```bash
-make build-amd64
-scp bin/openclaw-multi-linux-amd64 ubuntu@<vps-host>:/tmp/openclaw-multi
-scp bin/openclaw-overlay-api-linux-amd64 ubuntu@<vps-host>:/tmp/openclaw-overlay-api
-scp bin/openclaw-overlay-watcher-linux-amd64 ubuntu@<vps-host>:/tmp/openclaw-overlay-watcher
-ssh ubuntu@<vps-host>
-su -
-install -m 0755 /tmp/openclaw-multi /usr/local/bin/openclaw-multi
-install -m 0755 /tmp/openclaw-overlay-api /usr/local/bin/openclaw-overlay-api
-install -m 0755 /tmp/openclaw-overlay-watcher /usr/local/bin/openclaw-overlay-watcher
+command -v cloudflared
+test -d /home/ubuntu/openclaw-multi
+test -f /etc/cloudflared/<tunnel_id>.json
+systemctl is-active tailscaled
+tailscale status
+sudo -i
+ufw status verbose
 exit
 ```
+
+Если любой пункт не проходит, вернуться в [`docs/install.md`](install.md).
 
 ## Конфиг OpenClaw Multi
 
@@ -139,6 +91,7 @@ exit
 ```yaml
 domain: example.com
 subdomain: openclaw
+tunnel_name: <tunnel-name>
 tunnel_id: <cloudflare-tunnel-id>
 tunnel_mode: account
 cloudflare_zone_id: <zone-id>
@@ -170,10 +123,14 @@ ls -l /etc/cloudflared/<tunnel_id>.json
 
 ## Установка с нуля
 
-Запустить TUI под админом `ubuntu`:
+Запустить OpenClaw Multi как admin `ubuntu` через `sudo`, не из root shell.
+Так сохраняется `SUDO_USER=ubuntu`, и TUI фиксирует реального admin user.
+Fresh install и add-user внутри TUI получают root-права от `sudo` для системных
+операций: запись `/etc`, systemd units, `useradd`, `chown`, cloudflared config.
 
 ```bash
-openclaw-multi
+ssh ubuntu@<vps-host>
+sudo openclaw-multi
 ```
 
 Выполнить:
@@ -199,7 +156,7 @@ test -f /var/log/openclaw-multi/audit.log
 System unit overlay-API:
 
 ```bash
-su -
+sudo -i
 install -m 0644 /home/ubuntu/openclaw-multi/templates/openclaw-overlay-api.service.tmpl \
   /etc/systemd/system/openclaw-overlay-api.service
 systemctl daemon-reload

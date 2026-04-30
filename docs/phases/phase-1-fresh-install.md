@@ -404,8 +404,12 @@ Cloudflare account) and Variant B (quick tunnel, no account).
 - [ ] `func EnsureCloudflared(ctx, exec Executor, fs FS, renderer config.Renderer, cfg *config.OverlayConfig, mode string) error`.
 - [ ] Detect: `cloudflared --version` + check credentials file existence via FS.
 - [ ] **Variant A** command sequence (via Executor):
-  - `cloudflared tunnel create openclaw-multi` → parse tunnel ID from output.
-  - `cloudflared tunnel route dns openclaw-multi *.${subdomain}.${domain}`.
+  - If `tunnel_id` is already configured, use it and do not list/create a
+    tunnel.
+  - If `tunnel_id` is empty, run
+    `cloudflared tunnel list --name ${tunnel_name} --output json`; create
+    `${tunnel_name}` only when it is absent.
+  - `cloudflared tunnel route dns --overwrite-dns ${tunnel_name_or_id} *.${subdomain}.${domain}`.
   - Render `cloudflared-config.tmpl` → write via FS.
   - `cloudflared tunnel ingress validate /etc/cloudflared/config.yml`.
   - `sudo systemctl enable --now cloudflared`.

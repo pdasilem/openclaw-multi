@@ -80,6 +80,24 @@ func TestWarnIfRootEmptyForNormalUser(t *testing.T) {
 	}
 }
 
+func TestRootWarningEmptyForSudoAdmin(t *testing.T) {
+	if w := rootWarning(0, "ubuntu"); w != "" {
+		t.Errorf("expected empty warning for sudo admin, got %q", w)
+	}
+}
+
+func TestRootWarningForDirectRoot(t *testing.T) {
+	if w := rootWarning(0, ""); w == "" {
+		t.Error("expected warning for direct root")
+	}
+}
+
+func TestRootWarningForSudoRoot(t *testing.T) {
+	if w := rootWarning(0, "root"); w == "" {
+		t.Error("expected warning for SUDO_USER=root")
+	}
+}
+
 func TestPersistAdminEmitsAuditEvent(t *testing.T) {
 	store := &fakeStore{}
 	logger := &fakeLogger{}

@@ -18,10 +18,15 @@ func openTemp(t *testing.T) *Store {
 	return s
 }
 
-func TestOpenReturnsErrorForInvalidPath(t *testing.T) {
-	_, err := Open(context.Background(), "/nonexistent-dir-openclaw-test/state.db")
-	if err == nil {
-		t.Fatal("expected error for invalid directory")
+func TestOpenCreatesParentDir(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "state.db")
+	s, err := Open(context.Background(), path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	if s.path != path {
+		t.Fatalf("path = %q, want %q", s.path, path)
 	}
 }
 

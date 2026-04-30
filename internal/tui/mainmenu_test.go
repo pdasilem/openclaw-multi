@@ -23,6 +23,20 @@ func TestMenuNavigation(t *testing.T) {
 	}
 }
 
+func TestMenuNavigationUppercaseKeys(t *testing.T) {
+	m := newMainMenu()
+
+	m2, _ := m.Update(keyText("J"))
+	if m2.cursor != 1 {
+		t.Errorf("expected cursor 1 after uppercase down, got %d", m2.cursor)
+	}
+
+	m3, _ := m2.Update(keyText("K"))
+	if m3.cursor != 0 {
+		t.Errorf("expected cursor 0 after uppercase up, got %d", m3.cursor)
+	}
+}
+
 func TestMenuEnterDispatchesAction(t *testing.T) {
 	m := newMainMenu()
 	_, cmd := m.Update(keyPress(tea.Key{Code: tea.KeyEnter}))
