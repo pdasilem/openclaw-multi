@@ -189,9 +189,8 @@ Update flow:
   заменяет config дефолтом;
 - `A` останавливает `system-prepare` без изменений выбранного config;
 - после создания или replace app config команда тоже открывает
-  `/etc/openclaw-multi/config.yml` для заполнения; заполнить нужно как минимум
-  `domain`, `subdomain`, `tunnel_name`, `tunnel_id`, `cloudflare_zone_id`,
-  `cloudflare_api_token`, `cloudflared_credentials_file`;
+  `/etc/openclaw-multi/config.yml` для заполнения; все поля реального config
+  перечислены ниже в разделе `Данные для openclaw-multi`;
 - `/etc/cloudflared/config.yml` создается только если уже заполнены
   `tunnel_id` и `cloudflared_credentials_file`; если этих полей нет,
   `system-prepare` снова открывает app config для заполнения и после закрытия
@@ -308,8 +307,21 @@ tunnel_mode: account
 cloudflare_zone_id: <zone-id>
 cloudflare_api_token: <token-with-dns-edit>
 cloudflared_credentials_file: /etc/cloudflared/<tunnel_id>.json
+port_range_start: 18789
+port_range_step: 20
+node_version_min: "24"
+openclaw_update_source: "openclaw@latest"
+openclaw_update_command: "npm install --global openclaw@latest"
 terminal_history_lines: 1000
+notifications:
+  telegram_token: ""
+  telegram_chat_id: ""
 ```
+
+Набор YAML-полей из `/etc/openclaw-multi/config.yml`, который
+соответствует `internal/config.OverlayConfig`. Для рабочего запуска вручную
+заполняются значения Cloudflare/domain/tunnel. Остальные поля оставляются как
+показано, если нет осознанного изменения.
 
 ## Готовность к запуску
 

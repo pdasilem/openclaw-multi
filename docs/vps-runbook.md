@@ -79,7 +79,7 @@ sudo ufw status verbose
 /etc/openclaw-multi/config.yml
 ```
 
-Поля, которые нужны для публичной публикации routes:
+Полный набор YAML-полей `/etc/openclaw-multi/config.yml`:
 
 ```yaml
 domain: example.com
@@ -95,6 +95,7 @@ port_range_step: 20
 node_version_min: "24"
 openclaw_update_source: "openclaw@latest"
 openclaw_update_command: "npm install --global openclaw@latest"
+terminal_history_lines: 1000
 notifications:
   telegram_token: ""
   telegram_chat_id: ""
@@ -218,15 +219,23 @@ Tenant создается не через OpenClaw onboarding, а через Ope
 4. generate gateway token automatically;
 5. run `sudo useradd -m -s /bin/bash <username>`;
 6. run `sudo loginctl enable-linger <username>`;
-7. run non-interactive OpenClaw onboarding under `sudo su - <username>`;
-8. pass `OPENCLAW_GATEWAY_PORT`, `OPENCLAW_GATEWAY_TOKEN`, and
-   `OPENCLAW_GATEWAY_BIND=loopback`;
-9. harden `~/.openclaw` as `0700` and `~/.openclaw/openclaw.json` as `0600`;
-10. write per-user watcher unit;
-11. publish gateway route through overlay-API;
-12. record user and gateway route in `state.db`;
-13. emit `bootstrap_user` and route publication audit events;
-14. show admin the public gateway URL and generated token.
+7. run `sudo systemctl start user@<uid>.service`;
+8. install/repair NVM, Node 24, and `openclaw@latest` under
+   `sudo su - <username>`;
+9. write tenant wrappers and user systemd units through tenant context, not by
+   direct admin writes into `/home/<username>`;
+10. run non-interactive OpenClaw onboarding under `sudo su - <username>` with
+    `XDG_RUNTIME_DIR=/run/user/<uid>` and
+    `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus`;
+11. pass gateway token through a temporary tenant-owned env file and use
+    `--gateway-token-ref-env OPENCLAW_GATEWAY_TOKEN`;
+12. harden `~/.openclaw` as `0700` and `~/.openclaw/openclaw.json` as `0600`;
+13. run user service commands as
+    `sudo -u <username> env XDG_RUNTIME_DIR=/run/user/<uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus systemctl --user ...`;
+14. publish gateway route through overlay-API;
+15. record user and gateway route in `state.db`;
+16. emit `bootstrap_user` and route publication audit events;
+17. show admin the public gateway URL and generated token.
 
 Проверить Linux boundary:
 
@@ -279,9 +288,10 @@ Onboarding настраивает:
 - Gateway bind mode: `loopback`.
 - Gateway auth mode: `token`.
 - Gateway token генерирует OpenClaw Multi и передает через
-  `OPENCLAW_GATEWAY_TOKEN`.
-- Gateway port передается через `OPENCLAW_GATEWAY_PORT`.
-- Gateway bind передается через `OPENCLAW_GATEWAY_BIND=loopback`.
+  tenant-owned temporary env file as `OPENCLAW_GATEWAY_TOKEN`; onboarding uses
+  `--gateway-token-ref-env OPENCLAW_GATEWAY_TOKEN`.
+- Gateway port передается через `--gateway-port`.
+- Gateway bind передается через `--gateway-bind loopback`.
 - Tailscale для managed users выключен; публичный вход идет через cloudflared.
 - Provider/auth/channels задаются через non-interactive OpenClaw onboarding
   внутри tenant; overlay не меняет OpenClaw core.
@@ -303,16 +313,20 @@ exit
 ```bash
 su - <username>
 export OPENCLAW_GATEWAY_TOKEN='<gateway-token-generated-by-openclaw-multi>'
-export OPENCLAW_GATEWAY_PORT='<gateway-port-allocated-by-openclaw-multi>'
+export XDG_RUNTIME_DIR=/run/user/<uid>
+export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus
 ~/.local/bin/openclaw onboard --non-interactive \
   --mode local \
   --auth-choice skip \
   --gateway-bind loopback \
   --gateway-auth token \
   --gateway-token-ref-env OPENCLAW_GATEWAY_TOKEN \
-  --gateway-port "$OPENCLAW_GATEWAY_PORT" \
+  --gateway-port <gateway-port-allocated-by-openclaw-multi> \
   --install-daemon \
-  --accept-risk
+  --skip-skills \
+  --skip-health \
+  --accept-risk \
+  --json
 ~/.local/bin/openclaw doctor
 exit
 ```
@@ -341,7 +355,10 @@ exit
 
 1. применить `chmod 700 ~/.openclaw` и `chmod 600 ~/.openclaw/openclaw.json`;
 2. записать `openclaw-overlay-watcher.service`;
-3. включить watcher через `systemctl --user enable --now`;
+3. включить gateway и watcher через `sudo -u <username> env
+   XDG_RUNTIME_DIR=/run/user/<uid>
+   DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus systemctl --user
+   enable --now ...`;
 4. создать route `gateway-<username>.<subdomain>.<domain>` через overlay-API;
 5. записать route/user состояние в `state.db`;
 6. записать audit events;

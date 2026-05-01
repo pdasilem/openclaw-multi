@@ -68,29 +68,44 @@ func TestManagerAddSuccess(t *testing.T) {
 	if user.GatewayURL != "https://gateway-alice.ui.example.com" {
 		t.Fatalf("GatewayURL: got %q", user.GatewayURL)
 	}
-	if exec.CallCount() != 12 {
-		t.Fatalf("expected 12 command calls, got %d", exec.CallCount())
+	if exec.CallCount() != 16 {
+		t.Fatalf("expected 16 command calls, got %d", exec.CallCount())
 	}
-	if !strings.Contains(strings.Join(exec.Calls[3].Cmd, " "), "npm install --global openclaw@latest") {
-		t.Fatalf("expected npm openclaw@latest install in bootstrap call: %+v", exec.Calls[3].Cmd)
+	if got := strings.Join(exec.Calls[3].Cmd, " "); !strings.Contains(got, "systemctl start user@1001.service") {
+		t.Fatalf("expected user manager start after uid lookup, got %+v", exec.Calls[3].Cmd)
 	}
-	if !envContains(exec.Calls[5].Env, "OPENCLAW_GATEWAY_TOKEN=") {
-		t.Fatalf("expected gateway token env in onboard call: %+v", exec.Calls[5].Env)
+	if !strings.Contains(strings.Join(exec.Calls[4].Cmd, " "), "npm install --global openclaw@latest") {
+		t.Fatalf("expected npm openclaw@latest install in bootstrap call: %+v", exec.Calls[4].Cmd)
 	}
-	if !strings.Contains(strings.Join(exec.Calls[5].Cmd, " "), "/home/alice/.local/bin/openclaw onboard --install-daemon") {
-		t.Fatalf("expected tenant openclaw wrapper in onboard call: %+v", exec.Calls[5].Cmd)
+	if !strings.Contains(exec.Calls[5].Stdin, "exec openclaw \"$@\"") {
+		t.Fatalf("expected tenant openclaw wrapper stdin, got %q", exec.Calls[5].Stdin)
 	}
-	if _, ok := fs.Files["/home/alice/.local/bin/openclaw"]; !ok {
-		t.Fatal("expected tenant openclaw wrapper written")
+	if !strings.Contains(strings.Join(exec.Calls[5].Cmd, " "), "su - alice -c") || !strings.Contains(strings.Join(exec.Calls[5].Cmd, " "), "/home/alice/.local/bin/openclaw") {
+		t.Fatalf("expected tenant openclaw wrapper write as alice: %+v", exec.Calls[5].Cmd)
 	}
-	if _, ok := fs.Files["/home/alice/.local/bin/openclaw-gateway-start"]; !ok {
-		t.Fatal("expected tenant gateway wrapper written")
+	if !strings.Contains(exec.Calls[6].Stdin, "gateway start --daemon false") {
+		t.Fatalf("expected tenant gateway wrapper stdin, got %q", exec.Calls[6].Stdin)
 	}
-	if data := string(fs.Files["/home/alice/.config/systemd/user/openclaw-gateway.service"]); !strings.Contains(data, "/home/alice/.local/bin/openclaw-gateway-start") {
-		t.Fatalf("expected gateway unit to use tenant wrapper, got %q", data)
+	if !strings.Contains(exec.Calls[7].Stdin, "OPENCLAW_GATEWAY_TOKEN=") {
+		t.Fatalf("expected gateway token env file stdin, got %q", exec.Calls[7].Stdin)
 	}
-	if _, ok := fs.Files["/home/alice/.config/systemd/user/openclaw-overlay-watcher.service"]; !ok {
-		t.Fatal("expected watcher unit written")
+	if !strings.Contains(strings.Join(exec.Calls[8].Cmd, " "), "/home/alice/.local/bin/openclaw onboard --non-interactive") {
+		t.Fatalf("expected non-interactive tenant openclaw onboard command: %+v", exec.Calls[8].Cmd)
+	}
+	if !strings.Contains(strings.Join(exec.Calls[8].Cmd, " "), "--gateway-token-ref-env OPENCLAW_GATEWAY_TOKEN") {
+		t.Fatalf("expected gateway token ref onboarding command: %+v", exec.Calls[8].Cmd)
+	}
+	if !strings.Contains(strings.Join(exec.Calls[8].Cmd, " "), "XDG_RUNTIME_DIR=/run/user/1001") {
+		t.Fatalf("expected onboarding runtime env, got %+v", exec.Calls[8].Cmd)
+	}
+	if !strings.Contains(exec.Calls[9].Stdin, "/home/alice/.local/bin/openclaw-gateway-start") {
+		t.Fatalf("expected gateway unit stdin to use tenant wrapper, got %q", exec.Calls[9].Stdin)
+	}
+	if !strings.Contains(exec.Calls[10].Stdin, "user=alice") {
+		t.Fatalf("expected watcher unit stdin, got %q", exec.Calls[10].Stdin)
+	}
+	if got := strings.Join(exec.Calls[13].Cmd, " "); !strings.Contains(got, "-u alice env XDG_RUNTIME_DIR=/run/user/1001") || !strings.Contains(got, "systemctl --user daemon-reload") {
+		t.Fatalf("expected user systemctl daemon-reload with runtime env, got %+v", exec.Calls[13].Cmd)
 	}
 	if len(log.events) == 0 || log.events[len(log.events)-1].Result != audit.ResultOk {
 		t.Fatalf("expected ok audit event, got %+v", log.events)
@@ -599,13 +614,4 @@ func watcherFS() *shell.MemFS {
 	fs.Files["templates/openclaw-overlay-watcher.service.tmpl"] = []byte("user=${USERNAME}\napi=${OVERLAY_API_ENDPOINT}\n")
 	fs.Files["templates/openclaw-gateway.service.tmpl"] = []byte("ExecStart=/home/${USERNAME}/.local/bin/openclaw-gateway-start\nport=${GATEWAY_PORT}\ntoken=${GATEWAY_TOKEN}\n")
 	return fs
-}
-
-func envContains(env []string, prefix string) bool {
-	for _, item := range env {
-		if strings.HasPrefix(item, prefix) {
-			return true
-		}
-	}
-	return false
 }

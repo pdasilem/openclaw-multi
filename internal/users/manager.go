@@ -125,16 +125,11 @@ func (m *Manager) Add(ctx context.Context, req AddRequest) (*state.User, error) 
 		return nil, err
 	}
 
-	env := []string{
-		fmt.Sprintf("OPENCLAW_GATEWAY_PORT=%d", port),
-		"OPENCLAW_GATEWAY_TOKEN=" + token,
-		"OPENCLAW_GATEWAY_BIND=loopback",
-	}
-	if err := m.run(ctx, []string{"useradd", "-m", "-s", "/bin/bash", username}, nil); err != nil && !isUserAlreadyExists(err) {
+	if err := m.run(ctx, []string{"useradd", "-m", "-s", "/bin/bash", username}); err != nil && !isUserAlreadyExists(err) {
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
-	if err := m.run(ctx, []string{"loginctl", "enable-linger", username}, nil); err != nil {
+	if err := m.run(ctx, []string{"loginctl", "enable-linger", username}); err != nil {
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
@@ -143,51 +138,47 @@ func (m *Manager) Add(ctx context.Context, req AddRequest) (*state.User, error) 
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
+	if err := m.ensureUserManager(ctx, uid); err != nil {
+		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
+		return nil, err
+	}
 	if err := m.bootstrapTenantRuntime(ctx, username); err != nil {
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
-	if err := m.writeOpenClawWrappers(username); err != nil {
+	if err := m.writeOpenClawWrappers(ctx, username); err != nil {
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
-	if err := m.run(ctx, []string{"chown", "-R", username + ":" + username, "/home/" + username + "/.local/bin"}, nil); err != nil {
+	if err := m.runOnboarding(ctx, username, uid, port, token); err != nil {
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
-	if err := m.run(ctx, []string{"su", "-", username, "-c", "/home/" + username + "/.local/bin/openclaw onboard --install-daemon"}, env); err != nil {
+	if err := m.writeGatewayUnit(ctx, username, port, token); err != nil {
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
-	if err := m.writeGatewayUnit(username, port, token); err != nil {
+	if err := m.writeWatcherUnit(ctx, username); err != nil {
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
-	if err := m.writeWatcherUnit(username); err != nil {
+	if err := m.run(ctx, []string{"chmod", "700", "/home/" + username + "/.openclaw"}); err != nil {
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
-	if err := m.run(ctx, []string{"chown", "-R", username + ":" + username, "/home/" + username + "/.config/systemd/user", "/home/" + username + "/.local/bin"}, nil); err != nil {
+	if err := m.run(ctx, []string{"chmod", "600", "/home/" + username + "/.openclaw/openclaw.json"}); err != nil {
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
-	if err := m.run(ctx, []string{"chmod", "700", "/home/" + username + "/.openclaw"}, nil); err != nil {
+	if err := m.runUserSystemctl(ctx, username, uid, "daemon-reload"); err != nil {
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
-	if err := m.run(ctx, []string{"chmod", "600", "/home/" + username + "/.openclaw/openclaw.json"}, nil); err != nil {
+	if err := m.runUserSystemctl(ctx, username, uid, "enable", "--now", "openclaw-gateway.service"); err != nil {
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
-	if err := m.run(ctx, []string{"su", "-", username, "-c", "systemctl --user daemon-reload"}, nil); err != nil {
-		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
-		return nil, err
-	}
-	if err := m.run(ctx, []string{"su", "-", username, "-c", "systemctl --user enable --now openclaw-gateway.service"}, nil); err != nil {
-		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
-		return nil, err
-	}
-	if err := m.run(ctx, []string{"su", "-", username, "-c", "systemctl --user enable --now openclaw-overlay-watcher.service"}, nil); err != nil {
+	if err := m.runUserSystemctl(ctx, username, uid, "enable", "--now", "openclaw-overlay-watcher.service"); err != nil {
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
@@ -234,11 +225,11 @@ func (m *Manager) Deactivate(ctx context.Context, username string) error {
 		m.emit(audit.ActionDisableUser, username, audit.ResultOk, nil, start)
 		return nil
 	}
-	if err := m.run(ctx, []string{"su", "-", username, "-c", "systemctl --user stop openclaw-gateway.service openclaw-overlay-watcher.service"}, nil); err != nil {
+	if err := m.run(ctx, []string{"su", "-", username, "-c", "systemctl --user stop openclaw-gateway.service openclaw-overlay-watcher.service"}); err != nil {
 		m.emit(audit.ActionDisableUser, username, audit.ResultError, err, start)
 		return err
 	}
-	if err := m.run(ctx, []string{"loginctl", "disable-linger", username}, nil); err != nil {
+	if err := m.run(ctx, []string{"loginctl", "disable-linger", username}); err != nil {
 		m.emit(audit.ActionDisableUser, username, audit.ResultError, err, start)
 		return err
 	}
@@ -275,11 +266,11 @@ func (m *Manager) Activate(ctx context.Context, username string) error {
 		m.emit(audit.ActionEnableUser, username, audit.ResultError, err, start)
 		return err
 	}
-	if err := m.run(ctx, []string{"loginctl", "enable-linger", username}, nil); err != nil {
+	if err := m.run(ctx, []string{"loginctl", "enable-linger", username}); err != nil {
 		m.emit(audit.ActionEnableUser, username, audit.ResultError, err, start)
 		return err
 	}
-	if err := m.run(ctx, []string{"su", "-", username, "-c", "systemctl --user start openclaw-gateway.service openclaw-overlay-watcher.service"}, nil); err != nil {
+	if err := m.run(ctx, []string{"su", "-", username, "-c", "systemctl --user start openclaw-gateway.service openclaw-overlay-watcher.service"}); err != nil {
 		m.emit(audit.ActionEnableUser, username, audit.ResultError, err, start)
 		return err
 	}
@@ -322,15 +313,15 @@ func (m *Manager) Remove(ctx context.Context, req RemoveRequest) error {
 		return err
 	}
 	m.emit(audit.ActionDeleteRoute, username, audit.ResultOk, nil, start)
-	if err := m.run(ctx, []string{"su", "-", username, "-c", "openclaw uninstall --all --yes --non-interactive"}, nil); err != nil {
+	if err := m.run(ctx, []string{"su", "-", username, "-c", "openclaw uninstall --all --yes --non-interactive"}); err != nil {
 		m.emit(audit.ActionDeleteUser, username, audit.ResultError, err, start)
 		return err
 	}
-	if err := m.run(ctx, []string{"loginctl", "disable-linger", username}, nil); err != nil {
+	if err := m.run(ctx, []string{"loginctl", "disable-linger", username}); err != nil {
 		m.emit(audit.ActionDeleteUser, username, audit.ResultError, err, start)
 		return err
 	}
-	if err := m.run(ctx, []string{"userdel", "-r", username}, nil); err != nil {
+	if err := m.run(ctx, []string{"userdel", "-r", username}); err != nil {
 		m.emit(audit.ActionDeleteUser, username, audit.ResultError, err, start)
 		return err
 	}
@@ -359,8 +350,8 @@ func (m *Manager) ready() error {
 	return nil
 }
 
-func (m *Manager) run(ctx context.Context, cmd []string, env []string) error {
-	_, err := m.Exec.Run(ctx, shell.ExecOpts{Cmd: cmd, Env: env, Sudo: true})
+func (m *Manager) run(ctx context.Context, cmd []string) error {
+	_, err := m.Exec.Run(ctx, shell.ExecOpts{Cmd: cmd, Sudo: true})
 	if err != nil {
 		return fmt.Errorf("run %q: %w", strings.Join(cmd, " "), err)
 	}
@@ -391,14 +382,23 @@ func (m *Manager) bootstrapTenantRuntime(ctx context.Context, username string) e
 	script := strings.Join([]string{
 		"set -e",
 		"export NVM_DIR=\"$HOME/.nvm\"",
-		"if [ ! -s \"$NVM_DIR/nvm.sh\" ]; then git clone https://github.com/nvm-sh/nvm.git \"$NVM_DIR\"; cd \"$NVM_DIR\"; git checkout v0.40.3; fi",
+		"if [ ! -s \"$NVM_DIR/nvm.sh\" ]; then",
+		"  if [ -d \"$NVM_DIR/.git\" ]; then",
+		"    git -C \"$NVM_DIR\" fetch --tags origin",
+		"    git -C \"$NVM_DIR\" checkout v0.40.3",
+		"  else",
+		"    rm -rf \"$NVM_DIR\"",
+		"    git clone https://github.com/nvm-sh/nvm.git \"$NVM_DIR\"",
+		"    git -C \"$NVM_DIR\" checkout v0.40.3",
+		"  fi",
+		"fi",
 		". \"$NVM_DIR/nvm.sh\"",
 		"nvm install " + shellQuote(nodeVersion),
 		"nvm use " + shellQuote(nodeVersion),
 		openclawInstallCommand,
 		"mkdir -p \"$HOME/.local/bin\"",
 	}, "\n")
-	return m.run(ctx, []string{"su", "-", username, "-c", script}, nil)
+	return m.run(ctx, []string{"su", "-", username, "-c", script})
 }
 
 func isUserAlreadyExists(err error) bool {
@@ -406,14 +406,10 @@ func isUserAlreadyExists(err error) bool {
 	return strings.Contains(msg, "already exists") || strings.Contains(msg, "already exist")
 }
 
-func (m *Manager) writeOpenClawWrappers(username string) error {
+func (m *Manager) writeOpenClawWrappers(ctx context.Context, username string) error {
 	nodeVersion := m.Config.NodeVersionMin
 	if nodeVersion == "" {
 		nodeVersion = config.Defaults().NodeVersionMin
-	}
-	dir := filepath.Join("/home", username, ".local", "bin")
-	if err := m.FS.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("mkdir tenant bin dir: %w", err)
 	}
 	openclawWrapper := strings.Join([]string{
 		"#!/usr/bin/env bash",
@@ -421,10 +417,10 @@ func (m *Manager) writeOpenClawWrappers(username string) error {
 		"export NVM_DIR=\"$HOME/.nvm\"",
 		". \"$NVM_DIR/nvm.sh\"",
 		"nvm use " + shellQuote(nodeVersion) + " >/dev/null",
-		"exec \"$NVM_DIR/versions/node/v" + nodeVersion + "/bin/openclaw\" \"$@\"",
+		"exec openclaw \"$@\"",
 		"",
 	}, "\n")
-	if err := m.FS.WriteFile(filepath.Join(dir, "openclaw"), []byte(openclawWrapper), 0o700); err != nil {
+	if err := m.writeTenantFile(ctx, username, filepath.Join("/home", username, ".local", "bin", "openclaw"), []byte(openclawWrapper), "0700"); err != nil {
 		return fmt.Errorf("write openclaw wrapper: %w", err)
 	}
 	gatewayWrapper := strings.Join([]string{
@@ -433,13 +429,13 @@ func (m *Manager) writeOpenClawWrappers(username string) error {
 		"exec \"$HOME/.local/bin/openclaw\" gateway start --daemon false",
 		"",
 	}, "\n")
-	if err := m.FS.WriteFile(filepath.Join(dir, "openclaw-gateway-start"), []byte(gatewayWrapper), 0o700); err != nil {
+	if err := m.writeTenantFile(ctx, username, filepath.Join("/home", username, ".local", "bin", "openclaw-gateway-start"), []byte(gatewayWrapper), "0700"); err != nil {
 		return fmt.Errorf("write gateway wrapper: %w", err)
 	}
 	return nil
 }
 
-func (m *Manager) writeGatewayUnit(username string, port int, token string) error {
+func (m *Manager) writeGatewayUnit(ctx context.Context, username string, port int, token string) error {
 	templatePath := filepath.Join(m.TemplateDir, gatewayTemplateName)
 	data, err := m.FS.ReadFile(templatePath)
 	if err != nil {
@@ -453,17 +449,13 @@ func (m *Manager) writeGatewayUnit(username string, port int, token string) erro
 	if err != nil {
 		return fmt.Errorf("render gateway template: %w", err)
 	}
-	dir := filepath.Join("/home", username, ".config", "systemd", "user")
-	if err := m.FS.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("mkdir gateway unit dir: %w", err)
-	}
-	if err := m.FS.WriteFile(filepath.Join(dir, "openclaw-gateway.service"), []byte(rendered), 0o600); err != nil {
+	if err := m.writeTenantFile(ctx, username, filepath.Join("/home", username, ".config", "systemd", "user", "openclaw-gateway.service"), []byte(rendered), "0600"); err != nil {
 		return fmt.Errorf("write gateway unit: %w", err)
 	}
 	return nil
 }
 
-func (m *Manager) writeWatcherUnit(username string) error {
+func (m *Manager) writeWatcherUnit(ctx context.Context, username string) error {
 	templatePath := filepath.Join(m.TemplateDir, watcherTemplateName)
 	data, err := m.FS.ReadFile(templatePath)
 	if err != nil {
@@ -477,12 +469,79 @@ func (m *Manager) writeWatcherUnit(username string) error {
 	if err != nil {
 		return fmt.Errorf("render watcher template: %w", err)
 	}
-	dir := filepath.Join("/home", username, ".config", "systemd", "user")
-	if err := m.FS.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("mkdir watcher unit dir: %w", err)
-	}
-	if err := m.FS.WriteFile(filepath.Join(dir, "openclaw-overlay-watcher.service"), []byte(rendered), 0o600); err != nil {
+	if err := m.writeTenantFile(ctx, username, filepath.Join("/home", username, ".config", "systemd", "user", "openclaw-overlay-watcher.service"), []byte(rendered), "0600"); err != nil {
 		return fmt.Errorf("write watcher unit: %w", err)
+	}
+	return nil
+}
+
+func (m *Manager) writeTenantFile(ctx context.Context, username string, path string, data []byte, mode string) error {
+	dir := filepath.Dir(path)
+	script := strings.Join([]string{
+		"set -e",
+		"install -d -m 0700 " + shellQuote(dir),
+		"cat > " + shellQuote(path),
+		"chmod " + shellQuote(mode) + " " + shellQuote(path),
+	}, "\n")
+	_, err := m.Exec.Run(ctx, shell.ExecOpts{
+		Cmd:   []string{"su", "-", username, "-c", script},
+		Sudo:  true,
+		Stdin: string(data),
+	})
+	if err != nil {
+		return fmt.Errorf("run tenant file write %q: %w", path, err)
+	}
+	return nil
+}
+
+func (m *Manager) runOnboarding(ctx context.Context, username string, uid int, port int, token string) error {
+	envPath := filepath.Join("/home", username, ".openclaw-overlay", "onboard.env")
+	envData := strings.Join([]string{
+		"OPENCLAW_GATEWAY_TOKEN=" + shellQuote(token),
+		"",
+	}, "\n")
+	if err := m.writeTenantFile(ctx, username, envPath, []byte(envData), "0600"); err != nil {
+		return fmt.Errorf("write onboarding env: %w", err)
+	}
+	onboardCmd := strings.Join([]string{
+		"/home/" + username + "/.local/bin/openclaw",
+		"onboard",
+		"--non-interactive",
+		"--mode", "local",
+		"--auth-choice", "skip",
+		"--gateway-port", strconv.Itoa(port),
+		"--gateway-bind", "loopback",
+		"--gateway-auth", "token",
+		"--gateway-token-ref-env", "OPENCLAW_GATEWAY_TOKEN",
+		"--install-daemon",
+		"--skip-skills",
+		"--skip-health",
+		"--accept-risk",
+		"--json",
+	}, " ")
+	cmd := strings.Join([]string{
+		"set -e",
+		"trap 'rm -f " + shellQuote(envPath) + "' EXIT",
+		"set -a",
+		". " + shellQuote(envPath),
+		"set +a",
+		"export XDG_RUNTIME_DIR=/run/user/" + strconv.Itoa(uid),
+		"export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/" + strconv.Itoa(uid) + "/bus",
+		onboardCmd,
+	}, "\n")
+	return m.run(ctx, []string{"su", "-", username, "-c", cmd})
+}
+
+func (m *Manager) ensureUserManager(ctx context.Context, uid int) error {
+	return m.run(ctx, []string{"systemctl", "start", "user@" + strconv.Itoa(uid) + ".service"})
+}
+
+func (m *Manager) runUserSystemctl(ctx context.Context, username string, uid int, args ...string) error {
+	cmd := []string{"-u", username, "env", "XDG_RUNTIME_DIR=/run/user/" + strconv.Itoa(uid), "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/" + strconv.Itoa(uid) + "/bus", "systemctl", "--user"}
+	cmd = append(cmd, args...)
+	_, err := m.Exec.Run(ctx, shell.ExecOpts{Cmd: cmd, Sudo: true})
+	if err != nil {
+		return fmt.Errorf("run user systemctl %q for %q: %w", strings.Join(args, " "), username, err)
 	}
 	return nil
 }

@@ -8,7 +8,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/pdasilem/openclaw-multi/internal/audit"
@@ -40,6 +42,7 @@ type ExecOpts struct {
 	Sudo    bool
 	Env     []string // additional env vars (added to os environment)
 	CWD     string
+	Stdin   string
 }
 
 // ExecResult holds the captured output of a completed command.
@@ -90,10 +93,13 @@ func (r *RealExecutor) Run(ctx context.Context, opts ExecOpts) (ExecResult, erro
 	if len(opts.Env) > 0 {
 		c.Env = append(c.Environ(), opts.Env...)
 	}
+	if opts.Stdin != "" {
+		c.Stdin = strings.NewReader(opts.Stdin)
+	}
 
 	var stdout, stderr bytes.Buffer
-	c.Stdout = &stdout
-	c.Stderr = &stderr
+	c.Stdout = io.MultiWriter(&stdout, eventWriter{sink: r.Events, kind: EventStdout, cmd: eventCmd, cwd: opts.CWD})
+	c.Stderr = io.MultiWriter(&stderr, eventWriter{sink: r.Events, kind: EventStderr, cmd: eventCmd, cwd: opts.CWD})
 
 	err := c.Run()
 	exitCode := 0
@@ -107,13 +113,6 @@ func (r *RealExecutor) Run(ctx context.Context, opts ExecOpts) (ExecResult, erro
 		Stderr:   stderr.String(),
 		ExitCode: exitCode,
 	}
-	if res.Stdout != "" {
-		emit(r.Events, Event{Kind: EventStdout, Cmd: eventCmd, CWD: opts.CWD, Data: res.Stdout})
-	}
-	if res.Stderr != "" {
-		emit(r.Events, Event{Kind: EventStderr, Cmd: eventCmd, CWD: opts.CWD, Data: res.Stderr})
-	}
-
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			r.emitDone(eventCmd, opts.CWD, started, res.ExitCode, "timeout")
@@ -128,6 +127,20 @@ func (r *RealExecutor) Run(ctx context.Context, opts ExecOpts) (ExecResult, erro
 	r.emitDone(eventCmd, opts.CWD, started, res.ExitCode, "")
 	r.emitAudit(cmd, audit.ResultOk, "")
 	return res, nil
+}
+
+type eventWriter struct {
+	sink EventSink
+	kind EventKind
+	cmd  []string
+	cwd  string
+}
+
+func (w eventWriter) Write(p []byte) (int, error) {
+	if len(p) > 0 {
+		emit(w.sink, Event{Kind: w.kind, Cmd: w.cmd, CWD: w.cwd, Data: string(p)})
+	}
+	return len(p), nil
 }
 
 func (r *RealExecutor) emitDone(cmd []string, cwd string, started time.Time, exitCode int, errMsg string) {

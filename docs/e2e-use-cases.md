@@ -147,7 +147,8 @@ or already had OpenClaw/cloudflared/Tailscale state.
   `port_range_start: 18789`, `port_range_step: 20`,
   `node_version_min: 24`,
   `terminal_history_lines: 1000`,
-  `openclaw_update_source: openclaw@latest`.
+  `openclaw_update_source: openclaw@latest`,
+  `openclaw_update_command: npm install --global openclaw@latest`.
 - `cloudflared` and `openclaw-overlay-api` service states match the phase:
    Phase 1 may install a stub service; Phase 6 must run the real daemon.
 
@@ -207,22 +208,27 @@ or already had OpenClaw/cloudflared/Tailscale state.
 
 1. Open menu item `3. User management`.
 2. Add a user named `alice`.
-3. Check Linux user state with `id alice`.
-4. Check linger with `loginctl show-user alice -p Linger`.
-5. Switch into tenant context through sudo: `sudo su - alice`.
-6. Confirm `node --version` reports major version `24` and comes from Alice's
+3. While add-user runs, expand the embedded terminal and confirm live progress
+   appears before the command exits, including NVM/npm/OpenClaw install output.
+4. Check Linux user state with `id alice`.
+5. Check linger with `loginctl show-user alice -p Linger`.
+6. Switch into tenant context through sudo: `sudo su - alice`.
+7. Confirm `node --version` reports major version `24` and comes from Alice's
    `nvm` path.
-7. Confirm OpenClaw CLI wrapper exists inside tenant:
+8. Confirm OpenClaw CLI wrapper exists inside tenant and is owned by `alice`:
    `test -x /home/alice/.local/bin/openclaw`.
-8. Confirm non-interactive onboarding ran inside tenant with daemon install:
-   `/home/alice/.local/bin/openclaw doctor` and
-   `systemctl --user status openclaw-gateway`.
-9. Confirm gateway config received overlay env decisions:
-   `OPENCLAW_GATEWAY_PORT`, `OPENCLAW_GATEWAY_TOKEN`, and
-   `OPENCLAW_GATEWAY_BIND=loopback` are reflected in generated OpenClaw config
-   or service environment without exposing token value in shared evidence.
-10. Inspect route state in `state.db` or through the TUI route list.
-11. Confirm TUI shows the public gateway URL and generated token to the admin.
+9. Confirm generated user units are owned by `alice`:
+   `ls -l /home/alice/.config/systemd/user/openclaw-*.service`.
+10. Confirm non-interactive onboarding ran inside tenant with daemon install:
+    `/home/alice/.local/bin/openclaw doctor` and
+    `systemctl --user status openclaw-gateway`.
+11. Confirm gateway config received overlay decisions:
+    `--gateway-port`, `--gateway-bind loopback`, and
+    `--gateway-token-ref-env OPENCLAW_GATEWAY_TOKEN` are reflected in generated
+    OpenClaw config or service environment without exposing token value in
+    shared evidence.
+12. Inspect route state in `state.db` or through the TUI route list.
+13. Confirm TUI shows the public gateway URL and generated token to the admin.
 
 **Expected result.**
 
@@ -231,6 +237,11 @@ or already had OpenClaw/cloudflared/Tailscale state.
 - OpenClaw gateway service is installed/running for the user.
 - OpenClaw onboarding is non-interactive and is not run as root or admin
   `ubuntu`; it runs as `alice`.
+- User systemd manager is started as `user@<uid>.service`; user service
+  commands use `XDG_RUNTIME_DIR=/run/user/<uid>` and
+  `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus`.
+- Tenant wrapper and systemd user unit files are written through the tenant
+  user context, not by direct admin-user writes into `/home/alice`.
 - Tenant uses Node.js major version `24` through `nvm`.
 - OpenClaw CLI source is `openclaw@latest` unless
   `openclaw_update_command` was changed in overlay settings.
