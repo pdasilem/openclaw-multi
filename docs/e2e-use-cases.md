@@ -129,19 +129,25 @@ or already had OpenClaw/cloudflared/Tailscale state.
 9. Confirm collapsed terminal history contains the commands executed by the
    wizard.
 10. Run `sudo -k`, then start a harmless privileged action or command from the
-   embedded terminal; enter sudo password in terminal focus and confirm it
-   completes.
+    embedded terminal; enter sudo password in terminal focus and confirm it
+    completes.
+11. Run `sudo openclaw-multi system-prepare` after configs already exist.
+    For each existing config prompt, verify `K` opens the current file for
+    review/edit, `R` creates a timestamp backup and replaces the file with
+    defaults, and `A` aborts without changing the selected file.
 
 **Expected result.**
 
 - Required packages and services are installed or reused.
 - Existing host state is not overwritten without an explicit confirmation.
+- Existing config keep path is not blind: the current file is opened before it
+  is accepted as the config that remains.
 - Overlay config contains domain, subdomain, tunnel mode, and port range.
 - Overlay config defaults match the plan unless intentionally changed:
   `port_range_start: 18789`, `port_range_step: 20`,
   `node_version_min: 24`,
   `terminal_history_lines: 1000`,
-  `openclaw_update_source: pdasilem/openclaw:latest`.
+  `openclaw_update_source: openclaw@latest`.
 - `cloudflared` and `openclaw-overlay-api` service states match the phase:
    Phase 1 may install a stub service; Phase 6 must run the real daemon.
 
@@ -226,7 +232,7 @@ or already had OpenClaw/cloudflared/Tailscale state.
 - OpenClaw onboarding is non-interactive and is not run as root or admin
   `ubuntu`; it runs as `alice`.
 - Tenant uses Node.js major version `24` through `nvm`.
-- OpenClaw CLI source is `pdasilem/openclaw:latest` unless
+- OpenClaw CLI source is `openclaw@latest` unless
   `openclaw_update_command` was changed in overlay settings.
 - Gateway URL has the form
   `https://gateway-alice.<subdomain>.<domain>`.

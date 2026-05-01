@@ -71,6 +71,9 @@ func TestManagerAddSuccess(t *testing.T) {
 	if exec.CallCount() != 12 {
 		t.Fatalf("expected 12 command calls, got %d", exec.CallCount())
 	}
+	if !strings.Contains(strings.Join(exec.Calls[3].Cmd, " "), "npm install --global openclaw@latest") {
+		t.Fatalf("expected npm openclaw@latest install in bootstrap call: %+v", exec.Calls[3].Cmd)
+	}
 	if !envContains(exec.Calls[5].Env, "OPENCLAW_GATEWAY_TOKEN=") {
 		t.Fatalf("expected gateway token env in onboard call: %+v", exec.Calls[5].Env)
 	}
@@ -200,6 +203,37 @@ func TestManagerAddRunsSystemCommandsWithSudo(t *testing.T) {
 		if !call.Sudo {
 			t.Fatalf("expected setup command %d to use sudo: %v", i, call.Cmd)
 		}
+	}
+}
+
+func TestManagerAddRepairsExistingLinuxUserWithoutState(t *testing.T) {
+	ctx := context.Background()
+	store := openUserTestStore(t)
+	exec := &shell.MockExecutor{
+		Responses: []shell.ExecResult{
+			{Stderr: "useradd: user 'alice' already exists\n", ExitCode: 9},
+			shell.OKResponse(""),
+			shell.OKResponse("1001\n"),
+			shell.OKResponse(""),
+		},
+		Errors: []error{
+			shell.ErrNonZeroExit{ExitCode: 9, Stderr: "useradd: user 'alice' already exists\n"},
+			nil,
+			nil,
+			nil,
+		},
+	}
+	m := testManager(store, exec, watcherFS(), nil)
+
+	user, err := m.Add(ctx, AddRequest{Username: "alice"})
+	if err != nil {
+		t.Fatalf("Add existing Linux user without state: %v", err)
+	}
+	if user.Username != "alice" || user.UID != 1001 {
+		t.Fatalf("unexpected user: %+v", user)
+	}
+	if exec.Calls[0].Cmd[0] != "useradd" {
+		t.Fatalf("expected first call to be useradd, got %+v", exec.Calls[0].Cmd)
 	}
 }
 

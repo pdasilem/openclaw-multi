@@ -38,7 +38,7 @@
   каждого managed Linux user через `nvm`; system-space overlay не зависит от
   глобального OpenClaw CLI.
 - **Node.js 24**: tenant runtime ставит Node.js `24` через `nvm`.
-- **OpenClaw updates из `pdasilem/openclaw:latest`**: OpenClaw CLI ставится и
+- **OpenClaw updates из `openclaw@latest`**: OpenClaw CLI ставится и
   обновляется из этого источника. Команда обновления задается настройкой
   overlay.
 - **Non-interactive onboarding**: OpenClaw onboarding внутри tenant запускается
@@ -202,7 +202,7 @@ Recovery (если админ-аккаунт потерян/заблокиров
 | ------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Node.js 24          | проверка выполняется внутри managed user через `~/.local/bin/openclaw` и `nvm`               | system-space не ставит Node.js; tenant runtime создается на этапе add-user                                                                                                                          |
 | Tailscale           | `command -v tailscale && systemctl is-active tailscaled && tailscale status`                 | если уже работает — сохранить identity, **не делать** `tailscale up` повторно. Опционально предложить добавить ACL-tag для VPS. Если есть, но не залогинен — провести `tailscale up --ssh`          |
-| Cloudflared         | `command -v cloudflared` + наличие `~/.cloudflared/cert.pem` или `/etc/cloudflared/cert.pem` | если бинарь и сертификат есть — переиспользовать; если есть свой `config.yml` — сделать timestamped backup и спросить «overwrite?». Если cloudflared не установлен — поставить из `.deb`            |
+| Cloudflared         | `command -v cloudflared` + наличие `~/.cloudflared/cert.pem` или `/etc/cloudflared/cert.pem` | если бинарь и сертификат есть — переиспользовать; если есть свой `config.yml` — `K` открывает текущий файл на просмотр/правку, `R` делает timestamp backup и заменяет дефолтом, `A` останавливает prepare. Если cloudflared не установлен — поставить из `.deb` |
 | UFW                 | `ufw status`                                                                                 | если уже active с правилами — показать текущие, спросить «применить overlay-правила (`deny incoming`/`allow outgoing` + ваш порт) и сохранить остальные?». Если inactive — настроить и активировать |
 | sysctl hardening    | `sysctl kernel.yama.ptrace_scope` и т.д.                                                     | если все нужные значения уже выставлены — пропустить; иначе записать `/etc/sysctl.d/openclaw-overlay.conf` и `sysctl --system`                                                                      |
 | `/proc hidepid=2`   | `mount \| grep proc`                                                                         | если уже `hidepid=2` — пропустить; иначе править `/etc/fstab` и `mount -o remount /proc`                                                                                                            |
@@ -529,7 +529,7 @@ overlay идемпотентен, см. §2.5).
    - Fresh install ставит только system-space overlay components.
    - Node.js `24` и OpenClaw CLI создаются внутри managed user на этапе
      add-user через tenant `nvm`.
-   - OpenClaw CLI ставится из `pdasilem/openclaw:latest`.
+   - OpenClaw CLI ставится из `openclaw@latest`.
    - Команда обновления OpenClaw задается настройкой overlay.
    - Onboarding запускается только через
      `/home/<user>/.local/bin/openclaw onboard --non-interactive`.

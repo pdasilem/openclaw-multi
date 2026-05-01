@@ -22,6 +22,13 @@ const (
 	cloudflaredConfigPath = "/etc/cloudflared/config.yml"
 )
 
+type existingConfigAction int
+
+const (
+	existingConfigKeep existingConfigAction = iota
+	existingConfigReplace
+)
+
 // Run prepares root-owned directories so the admin user can run the TUI without sudo.
 func Run(ctx context.Context, exec shell.Executor) ([]string, error) {
 	if os.Getuid() != 0 {
@@ -109,9 +116,12 @@ func reconcileOverlayConfig(in *bufio.Reader) (string, bool, error) {
 		}
 		return fmt.Sprintf("created %s mode=0600", overlayConfigPath), true, nil
 	}
-	replace, err := askReplace(in, overlayConfigPath)
-	if err != nil || !replace {
-		return fmt.Sprintf("kept existing %s", overlayConfigPath), false, err
+	action, err := askExistingConfigAction(in, overlayConfigPath)
+	if err != nil {
+		return "", false, err
+	}
+	if action == existingConfigKeep {
+		return fmt.Sprintf("kept existing %s", overlayConfigPath), true, nil
 	}
 	if err := backupFile(overlayConfigPath); err != nil {
 		return "", false, err
@@ -126,9 +136,15 @@ func reconcileCloudflaredConfig(in *bufio.Reader) (string, bool, error) {
 	if _, err := os.Stat(cloudflaredConfigPath); err != nil && !os.IsNotExist(err) {
 		return "", false, fmt.Errorf("stat %s: %w", cloudflaredConfigPath, err)
 	} else if err == nil {
-		replace, err := askReplace(in, cloudflaredConfigPath)
-		if err != nil || !replace {
-			return fmt.Sprintf("kept existing %s", cloudflaredConfigPath), false, err
+		action, err := askExistingConfigAction(in, cloudflaredConfigPath)
+		if err != nil {
+			return "", false, err
+		}
+		if action == existingConfigKeep {
+			if err := editFile(cloudflaredConfigPath); err != nil {
+				return "", false, err
+			}
+			return fmt.Sprintf("kept and edited existing %s", cloudflaredConfigPath), false, nil
 		}
 	}
 	cfg, err := config.Load(overlayConfigPath)
@@ -151,20 +167,20 @@ func reconcileCloudflaredConfig(in *bufio.Reader) (string, bool, error) {
 	return fmt.Sprintf("created %s mode=0600", cloudflaredConfigPath), false, nil
 }
 
-func askReplace(in *bufio.Reader, path string) (bool, error) {
+func askExistingConfigAction(in *bufio.Reader, path string) (existingConfigAction, error) {
 	for {
-		fmt.Fprintf(os.Stderr, "%s exists. Keep existing? [K]eep/[R]eplace/[A]bort: ", path)
+		fmt.Fprintf(os.Stderr, "%s exists. [K]eep/edit existing/[R]eplace with default/[A]bort: ", path)
 		answer, err := in.ReadString('\n')
 		if err != nil {
-			return false, fmt.Errorf("read answer for %s: %w", path, err)
+			return existingConfigKeep, fmt.Errorf("read answer for %s: %w", path, err)
 		}
 		switch strings.ToLower(strings.TrimSpace(answer)) {
 		case "", "k", "keep":
-			return false, nil
+			return existingConfigKeep, nil
 		case "r", "replace":
-			return true, nil
+			return existingConfigReplace, nil
 		case "a", "abort":
-			return false, fmt.Errorf("aborted while reconciling %s", path)
+			return existingConfigKeep, fmt.Errorf("aborted while reconciling %s", path)
 		}
 	}
 }

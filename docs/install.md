@@ -181,18 +181,23 @@ Update flow:
   затирается этим шагом;
 - `sudo openclaw-multi system-prepare` проверяет live config:
   отсутствующий `/etc/openclaw-multi/config.yml` создается из defaults,
-  существующий предлагает `[K]eep/[R]eplace/[A]bort`;
-- после создания или replace app config команда открывает
-  `/etc/openclaw-multi/config.yml` в `$EDITOR`, а если `$EDITOR` пустой, в
-  `nano`; заполнить нужно как минимум `domain`, `subdomain`, `tunnel_name`,
-  `tunnel_id`, `cloudflare_zone_id`, `cloudflare_api_token`,
-  `cloudflared_credentials_file`;
+  существующий предлагает `[K]eep/edit existing/[R]eplace with default/[A]bort`;
+- `K` оставляет текущий config и открывает его в `$EDITOR`, а если `$EDITOR`
+  пустой, в `nano`, чтобы посмотреть и при необходимости поправить то, что
+  остается;
+- `R` сначала создает timestamp backup `*.YYYYMMDDTHHMMSSZ.bak`, затем тихо
+  заменяет config дефолтом;
+- `A` останавливает `system-prepare` без изменений выбранного config;
+- после создания или replace app config команда тоже открывает
+  `/etc/openclaw-multi/config.yml` для заполнения; заполнить нужно как минимум
+  `domain`, `subdomain`, `tunnel_name`, `tunnel_id`, `cloudflare_zone_id`,
+  `cloudflare_api_token`, `cloudflared_credentials_file`;
 - `/etc/cloudflared/config.yml` создается только если уже заполнены
   `tunnel_id` и `cloudflared_credentials_file`; если этих полей нет,
   `system-prepare` снова открывает app config для заполнения и после закрытия
   перечитывает его;
-- при replace существующего config сначала создается timestamp backup
-  `*.YYYYMMDDTHHMMSSZ.bak`.
+- для существующего `/etc/cloudflared/config.yml` `K` также открывает файл на
+  просмотр/правку, а `R` заменяет его с backup.
 
 Проверить под пользователем `ubuntu`. Бинарники лежат в `/usr/local/bin`,
 runtime templates лежат в `/opt/openclaw-multi/templates`:

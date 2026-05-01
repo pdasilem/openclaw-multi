@@ -130,7 +130,7 @@ func (m *Manager) Add(ctx context.Context, req AddRequest) (*state.User, error) 
 		"OPENCLAW_GATEWAY_TOKEN=" + token,
 		"OPENCLAW_GATEWAY_BIND=loopback",
 	}
-	if err := m.run(ctx, []string{"useradd", "-m", "-s", "/bin/bash", username}, nil); err != nil {
+	if err := m.run(ctx, []string{"useradd", "-m", "-s", "/bin/bash", username}, nil); err != nil && !isUserAlreadyExists(err) {
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
@@ -384,6 +384,10 @@ func (m *Manager) bootstrapTenantRuntime(ctx context.Context, username string) e
 	if nodeVersion == "" {
 		nodeVersion = config.Defaults().NodeVersionMin
 	}
+	openclawInstallCommand := strings.TrimSpace(m.Config.OpenClawUpdateCommand)
+	if openclawInstallCommand == "" {
+		openclawInstallCommand = config.Defaults().OpenClawUpdateCommand
+	}
 	script := strings.Join([]string{
 		"set -e",
 		"export NVM_DIR=\"$HOME/.nvm\"",
@@ -391,10 +395,15 @@ func (m *Manager) bootstrapTenantRuntime(ctx context.Context, username string) e
 		". \"$NVM_DIR/nvm.sh\"",
 		"nvm install " + shellQuote(nodeVersion),
 		"nvm use " + shellQuote(nodeVersion),
-		"npm install --global github:pdasilem/openclaw#latest",
+		openclawInstallCommand,
 		"mkdir -p \"$HOME/.local/bin\"",
 	}, "\n")
 	return m.run(ctx, []string{"su", "-", username, "-c", script}, nil)
+}
+
+func isUserAlreadyExists(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "already exists") || strings.Contains(msg, "already exist")
 }
 
 func (m *Manager) writeOpenClawWrappers(username string) error {

@@ -93,8 +93,8 @@ cloudflared_credentials_file: /etc/cloudflared/<tunnel_id>.json
 port_range_start: 18789
 port_range_step: 20
 node_version_min: "24"
-openclaw_update_source: "pdasilem/openclaw:latest"
-openclaw_update_command: "npm install --global github:pdasilem/openclaw#latest"
+openclaw_update_source: "openclaw@latest"
+openclaw_update_command: "npm install --global openclaw@latest"
 notifications:
   telegram_token: ""
   telegram_chat_id: ""
@@ -128,9 +128,18 @@ sudo openclaw-multi system-prepare
 `sudo make install` обновляет бинарники и runtime templates. Live config в
 `/etc/openclaw-multi/config.yml` и `/etc/cloudflared/config.yml` не
 перезаписывается этим шагом. `system-prepare` проверяет live config отдельно:
-создает отсутствующий app config, существующий предлагает keep/replace/abort,
-открывает app config в `$EDITOR`/`nano` для заполнения, а cloudflared config
-создает после появления `tunnel_id` и `cloudflared_credentials_file`.
+создает отсутствующий app config, а для существующего config предлагает
+`[K]eep/edit existing/[R]eplace with default/[A]bort`.
+
+- `K` оставляет текущий файл и открывает его в `$EDITOR`/`nano`, чтобы увидеть
+  и при необходимости поправить config, который остается.
+- `R` создает timestamp backup `*.YYYYMMDDTHHMMSSZ.bak` и тихо заменяет файл
+  дефолтом.
+- `A` останавливает `system-prepare` без изменений выбранного файла.
+
+После создания или replace app config команда открывает
+`/etc/openclaw-multi/config.yml` для заполнения, а cloudflared config создает
+после появления `tunnel_id` и `cloudflared_credentials_file`.
 
 Cloudflared systemd unit вручную перед Fresh install стартовать не нужно.
 Fresh install сам пишет `/etc/cloudflared/config.yml`, устанавливает
@@ -276,7 +285,7 @@ Onboarding настраивает:
 - Tailscale для managed users выключен; публичный вход идет через cloudflared.
 - Provider/auth/channels задаются через non-interactive OpenClaw onboarding
   внутри tenant; overlay не меняет OpenClaw core.
-- OpenClaw CLI устанавливается и обновляется из `pdasilem/openclaw:latest`.
+- OpenClaw CLI устанавливается и обновляется из `openclaw@latest`.
 - Команда обновления задается настройкой `openclaw_update_command`.
 
 OpenClaw Multi должен автоматически подготовить tenant runtime до onboarding:
