@@ -1,12 +1,24 @@
 package systemprep
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"os/user"
+	"path/filepath"
+	"strings"
+	"time"
 
+	"gopkg.in/yaml.v3"
+
+	"github.com/pdasilem/openclaw-multi/internal/config"
 	"github.com/pdasilem/openclaw-multi/internal/shell"
+)
+
+const (
+	overlayConfigPath     = "/etc/openclaw-multi/config.yml"
+	cloudflaredConfigPath = "/etc/cloudflared/config.yml"
 )
 
 // Run prepares root-owned directories so the admin user can run the TUI without sudo.
@@ -45,5 +57,138 @@ func Run(ctx context.Context, exec shell.Executor) ([]string, error) {
 		}
 		actions = append(actions, fmt.Sprintf("ensured %s owner=root group=root mode=0755", dir))
 	}
+	configActions, err := reconcileConfigs(bufio.NewReader(os.Stdin))
+	actions = append(actions, configActions...)
+	if err != nil {
+		return actions, err
+	}
 	return actions, nil
+}
+
+func reconcileConfigs(in *bufio.Reader) ([]string, error) {
+	var actions []string
+	action, err := reconcileOverlayConfig(in)
+	if action != "" {
+		actions = append(actions, action)
+	}
+	if err != nil {
+		return actions, err
+	}
+	action, err = reconcileCloudflaredConfig(in)
+	if action != "" {
+		actions = append(actions, action)
+	}
+	return actions, err
+}
+
+func reconcileOverlayConfig(in *bufio.Reader) (string, error) {
+	data, err := yaml.Marshal(config.Defaults())
+	if err != nil {
+		return "", fmt.Errorf("marshal default overlay config: %w", err)
+	}
+	if _, err := os.Stat(overlayConfigPath); err != nil {
+		if !os.IsNotExist(err) {
+			return "", fmt.Errorf("stat %s: %w", overlayConfigPath, err)
+		}
+		if err := writeRootFile(overlayConfigPath, data); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("created %s mode=0600", overlayConfigPath), nil
+	}
+	replace, err := askReplace(in, overlayConfigPath)
+	if err != nil || !replace {
+		return fmt.Sprintf("kept existing %s", overlayConfigPath), err
+	}
+	if err := backupFile(overlayConfigPath); err != nil {
+		return "", err
+	}
+	if err := writeRootFile(overlayConfigPath, data); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("replaced %s with default config after backup", overlayConfigPath), nil
+}
+
+func reconcileCloudflaredConfig(in *bufio.Reader) (string, error) {
+	if _, err := os.Stat(cloudflaredConfigPath); err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf("stat %s: %w", cloudflaredConfigPath, err)
+	} else if err == nil {
+		replace, err := askReplace(in, cloudflaredConfigPath)
+		if err != nil || !replace {
+			return fmt.Sprintf("kept existing %s", cloudflaredConfigPath), err
+		}
+	}
+	cfg, err := config.Load(overlayConfigPath)
+	if err != nil {
+		return fmt.Sprintf("skipped %s: %s is not ready", cloudflaredConfigPath, overlayConfigPath), nil
+	}
+	if strings.TrimSpace(cfg.TunnelID) == "" || strings.TrimSpace(cfg.CloudflaredCredentialsFile) == "" {
+		return fmt.Sprintf("skipped %s: tunnel_id and cloudflared_credentials_file are not configured", cloudflaredConfigPath), nil
+	}
+	content := []byte(fmt.Sprintf("tunnel: %s\ncredentials-file: %s\n\ningress:\n  - service: http_status:404\n",
+		cfg.TunnelID, cfg.CloudflaredCredentialsFile))
+	if _, err := os.Stat(cloudflaredConfigPath); err == nil {
+		if err := backupFile(cloudflaredConfigPath); err != nil {
+			return "", err
+		}
+	}
+	if err := writeRootFile(cloudflaredConfigPath, content); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("created %s mode=0600", cloudflaredConfigPath), nil
+}
+
+func askReplace(in *bufio.Reader, path string) (bool, error) {
+	for {
+		fmt.Fprintf(os.Stderr, "%s exists. Keep existing? [K]eep/[R]eplace/[A]bort: ", path)
+		answer, err := in.ReadString('\n')
+		if err != nil {
+			return false, fmt.Errorf("read answer for %s: %w", path, err)
+		}
+		switch strings.ToLower(strings.TrimSpace(answer)) {
+		case "", "k", "keep":
+			return false, nil
+		case "r", "replace":
+			return true, nil
+		case "a", "abort":
+			return false, fmt.Errorf("aborted while reconciling %s", path)
+		}
+	}
+}
+
+func backupFile(path string) error {
+	backup := fmt.Sprintf("%s.%s.bak", path, time.Now().UTC().Format("20060102T150405Z"))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read %s for backup: %w", path, err)
+	}
+	if err := writeRootFile(backup, data); err != nil {
+		return fmt.Errorf("write backup %s: %w", backup, err)
+	}
+	return nil
+}
+
+func writeRootFile(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp for %s: %w", path, err)
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write temp for %s: %w", path, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp for %s: %w", path, err)
+	}
+	if err := os.Chmod(tmpPath, 0o600); err != nil {
+		return fmt.Errorf("chmod temp for %s: %w", path, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("rename temp to %s: %w", path, err)
+	}
+	return nil
 }

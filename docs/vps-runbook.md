@@ -125,6 +125,21 @@ ls -l /etc/cloudflared/<tunnel_id>.json
 
 ## Установка с нуля
 
+Перед запуском TUI должны быть выполнены install/system prepare шаги из
+[`docs/install.md`](install.md):
+
+```bash
+cd /home/ubuntu/openclaw-multi
+sudo make install
+sudo openclaw-multi system-prepare
+```
+
+`sudo make install` обновляет бинарники и runtime templates. Live config в
+`/etc/openclaw-multi/config.yml` и `/etc/cloudflared/config.yml` не
+перезаписывается этим шагом. `system-prepare` проверяет live config отдельно:
+создает отсутствующий app config, существующий предлагает keep/replace/abort,
+а cloudflared config создает только после появления tunnel data.
+
 Запустить OpenClaw Multi как admin `ubuntu` без `sudo`.
 Fresh install и add-user внутри TUI получают root-права только для конкретных
 системных операций через явные `sudo` команды: запись `/etc`, systemd units,

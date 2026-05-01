@@ -178,6 +178,23 @@ sudo make install
 sudo openclaw-multi system-prepare
 ```
 
+Update flow:
+
+- `sudo make install` перезаписывает только поставляемые артефакты:
+  `/usr/local/bin/openclaw-*` и `/opt/openclaw-multi/templates/*`;
+- live config в `/etc/openclaw-multi/config.yml` и
+  `/etc/cloudflared/config.yml` не принадлежит `make install` и не
+  затирается этим шагом;
+- `sudo openclaw-multi system-prepare` проверяет live config:
+  отсутствующий `/etc/openclaw-multi/config.yml` создается из defaults,
+  существующий предлагает `[K]eep/[R]eplace/[A]bort`;
+- `/etc/cloudflared/config.yml` создается только если уже заполнены
+  `tunnel_id` и `cloudflared_credentials_file`; иначе step явно сообщает
+  `skipped`, потому что без tunnel data валидный named-tunnel config собрать
+  нельзя;
+- при replace существующего config сначала создается timestamp backup
+  `*.YYYYMMDDTHHMMSSZ.bak`.
+
 Проверить под пользователем `ubuntu`. Бинарники лежат в `/usr/local/bin`,
 runtime templates лежат в `/opt/openclaw-multi/templates`:
 
