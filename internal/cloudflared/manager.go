@@ -140,7 +140,7 @@ func (m *Manager) run(ctx context.Context, cmd []string) error {
 	if len(cmd) == 0 || strings.TrimSpace(cmd[0]) == "" {
 		return errors.New("empty command")
 	}
-	_, err := m.Executor.Run(ctx, shell.ExecOpts{Cmd: cmd, Timeout: 10 * time.Second})
+	_, err := m.Executor.Run(ctx, shell.ExecOpts{Cmd: cmd, Sudo: true, Timeout: 10 * time.Second})
 	return err
 }
 

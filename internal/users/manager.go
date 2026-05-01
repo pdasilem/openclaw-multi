@@ -360,7 +360,7 @@ func (m *Manager) ready() error {
 }
 
 func (m *Manager) run(ctx context.Context, cmd []string, env []string) error {
-	_, err := m.Exec.Run(ctx, shell.ExecOpts{Cmd: cmd, Env: env})
+	_, err := m.Exec.Run(ctx, shell.ExecOpts{Cmd: cmd, Env: env, Sudo: true})
 	if err != nil {
 		return fmt.Errorf("run %q: %w", strings.Join(cmd, " "), err)
 	}

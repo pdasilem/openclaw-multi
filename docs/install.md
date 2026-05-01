@@ -45,9 +45,7 @@ echo "$SSH_CONNECTION"
 tailscale ip -4
 tailscale status
 systemctl is-active tailscaled
-sudo -i
-ufw status verbose
-exit
+sudo ufw status verbose
 ```
 
 Ожидаемо:
@@ -66,10 +64,8 @@ allow на `tailscale0`, добавить SSH-доступ до любых да�
 firewall:
 
 ```bash
-sudo -i
-ufw allow in on tailscale0 to any port 22 proto tcp comment 'admin ssh via tailscale'
-ufw status verbose
-exit
+sudo ufw allow in on tailscale0 to any port 22 proto tcp comment 'admin ssh via tailscale'
+sudo ufw status verbose
 ```
 
 Не выполнять `ufw reset`. Не выполнять `tailscale up` при уже авторизованном
@@ -94,13 +90,11 @@ for cmd in git make go sqlite3 useradd userdel loginctl systemctl ss ufw tailsca
 done
 ```
 
-Поставить отсутствующие пакеты из root shell:
+Поставить отсутствующие пакеты через `sudo`:
 
 ```bash
-sudo -i
-apt-get update
-apt-get install -y git make golang-go sqlite3 passwd systemd ufw curl ca-certificates
-exit
+sudo apt-get update
+sudo apt-get install -y git make golang-go sqlite3 passwd systemd ufw curl ca-certificates
 ```
 
 `tailscale` не ставится этим `apt-get install`: он должен уже быть

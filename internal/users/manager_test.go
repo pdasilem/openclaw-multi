@@ -187,6 +187,22 @@ func TestManagerAddCommandAndParseFailures(t *testing.T) {
 	}
 }
 
+func TestManagerAddRunsSystemCommandsWithSudo(t *testing.T) {
+	exec := &shell.MockExecutor{Responses: []shell.ExecResult{
+		shell.OKResponse(""),
+		shell.OKResponse(""),
+		shell.OKResponse("1001\n"),
+		shell.OKResponse(""),
+	}}
+	m := testManager(openUserTestStore(t), exec, watcherFS(), nil)
+	_, _ = m.Add(context.Background(), AddRequest{Username: "alice"})
+	for i, call := range exec.Calls[:2] {
+		if !call.Sudo {
+			t.Fatalf("expected setup command %d to use sudo: %v", i, call.Cmd)
+		}
+	}
+}
+
 func TestManagerAddWatcherTemplateFailure(t *testing.T) {
 	exec := &shell.MockExecutor{Responses: []shell.ExecResult{
 		shell.OKResponse(""),

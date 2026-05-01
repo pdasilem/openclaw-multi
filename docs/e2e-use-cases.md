@@ -203,7 +203,7 @@ or already had OpenClaw/cloudflared/Tailscale state.
 2. Add a user named `alice`.
 3. Check Linux user state with `id alice`.
 4. Check linger with `loginctl show-user alice -p Linger`.
-5. Switch only through root shell into tenant context: `su - alice`.
+5. Switch into tenant context through sudo: `sudo su - alice`.
 6. Confirm `node --version` reports major version `24` and comes from Alice's
    `nvm` path.
 7. Confirm OpenClaw CLI wrapper exists inside tenant:
@@ -464,7 +464,7 @@ or already had OpenClaw/cloudflared/Tailscale state.
 - TUI screenshot/transcript.
 - `tailscale status --json`
 - `cloudflared --version`
-- `ufw status verbose`
+- `sudo ufw status verbose`
 - `ss -ltnp`
 
 ### UC-0502: Plan and Apply Wildcard DNS
@@ -518,7 +518,7 @@ or already had OpenClaw/cloudflared/Tailscale state.
 2. Press `u` to build the UFW plan.
 3. Review missing enabled route ports.
 4. Apply the plan.
-5. Run `ufw status verbose`.
+5. Run `sudo ufw status verbose`.
 
 **Expected result.**
 
@@ -529,7 +529,7 @@ or already had OpenClaw/cloudflared/Tailscale state.
 
 **Capture on failure.**
 
-- Before/after `ufw status verbose`.
+- Before/after `sudo ufw status verbose`.
 - `ufw_update` audit event.
 
 ### UC-0504: Probe Gateway URL

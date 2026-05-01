@@ -37,24 +37,17 @@ onboarding внутри tenant, и какие логи/снимки состоя
 ssh ubuntu@<vps-host>
 ```
 
-Перейти в root shell нужно только для ручных команд, которые меняют системное
-состояние вне TUI:
-
-```bash
-sudo -i
-```
-
 Соглашение:
 
 - checkout и сборка выполняются как `ubuntu`;
-- установка бинарников и системные операции выполняются как `root`;
+- установка бинарников и системные операции выполняются через точечный `sudo`;
 - `openclaw-multi` запускать как `ubuntu` без `sudo`;
 - root-права внутри TUI используются только точечно через явные `sudo`
   команды;
 - если sudo попросит пароль, вводить его во встроенном terminal panel;
 - не запускать interactive TUI через `sudo openclaw-multi` или из `sudo -i`;
 - внутрь tenant переключаться только после создания user:
-  `su - <username>`;
+  `sudo su - <username>`;
 - в примерах `<username>` заменить на реально созданного tenant, например
   `alice`.
 
@@ -73,9 +66,7 @@ test -d /home/ubuntu/openclaw-multi
 test -f /etc/cloudflared/<tunnel_id>.json
 systemctl is-active tailscaled
 tailscale status
-sudo -i
-ufw status verbose
-exit
+sudo ufw status verbose
 ```
 
 Если любой пункт не проходит, вернуться в [`docs/install.md`](install.md).
@@ -178,18 +169,11 @@ test -f /var/log/openclaw-multi/audit.log
 
 ## Systemd-сервисы
 
-System unit overlay-API:
+Fresh install создает и включает system units автоматически. Вручную
+устанавливать `openclaw-overlay-api.service` после успешного Fresh install не
+нужно.
 
-```bash
-sudo -i
-install -m 0644 /home/ubuntu/openclaw-multi/templates/openclaw-overlay-api.service.tmpl \
-  /etc/systemd/system/openclaw-overlay-api.service
-systemctl daemon-reload
-systemctl enable --now openclaw-overlay-api
-exit
-```
-
-Текущий unit запускает:
+Текущий `openclaw-overlay-api.service` запускает:
 
 ```text
 /usr/local/bin/openclaw-overlay-api \
@@ -223,9 +207,9 @@ Tenant создается не через OpenClaw onboarding, а через Ope
 2. validate `domain` and `subdomain`;
 3. allocate gateway port from `18789 + n*20`;
 4. generate gateway token automatically;
-5. run `useradd -m -s /bin/bash <username>`;
-6. run `loginctl enable-linger <username>`;
-7. run non-interactive OpenClaw onboarding under `su - <username>`;
+5. run `sudo useradd -m -s /bin/bash <username>`;
+6. run `sudo loginctl enable-linger <username>`;
+7. run non-interactive OpenClaw onboarding under `sudo su - <username>`;
 8. pass `OPENCLAW_GATEWAY_PORT`, `OPENCLAW_GATEWAY_TOKEN`, and
    `OPENCLAW_GATEWAY_BIND=loopback`;
 9. harden `~/.openclaw` as `0700` and `~/.openclaw/openclaw.json` as `0600`;
@@ -477,7 +461,7 @@ systemctl list-units 'openclaw*' 'cloudflared*' 'tailscaled*' --no-pager
 systemctl is-active tailscaled cloudflared openclaw-overlay-api
 ss -ltnup
 tailscale status
-ufw status verbose
+sudo ufw status verbose
 cloudflared --version
 cloudflared tunnel ingress validate --config /etc/cloudflared/config.yml
 ```

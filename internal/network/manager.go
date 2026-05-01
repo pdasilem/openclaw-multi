@@ -213,7 +213,7 @@ func (m *Manager) UpdateLastSeenFromLogs(ctx context.Context, logs string) error
 }
 
 func (m *Manager) inspectTailscale(ctx context.Context) TailscaleInfo {
-	res, err := m.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"tailscale", "status", "--json"}, Timeout: 5 * time.Second})
+	res, err := m.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"tailscale", "status", "--json"}, Sudo: true, Timeout: 5 * time.Second})
 	if err != nil {
 		return TailscaleInfo{Status: StatusWarn, Message: "tailscale status failed", Installed: false}
 	}
@@ -266,7 +266,7 @@ func (m *Manager) inspectUFW(ctx context.Context, required []int) UFWInfo {
 }
 
 func (m *Manager) inspectPorts(ctx context.Context, required []int) []PortInfo {
-	res, err := m.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"ss", "-ltnp"}, Timeout: 5 * time.Second})
+	res, err := m.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"ss", "-ltnp"}, Sudo: true, Timeout: 5 * time.Second})
 	if err != nil {
 		return []PortInfo{{Status: StatusWarn, Message: "ss port scan failed"}}
 	}

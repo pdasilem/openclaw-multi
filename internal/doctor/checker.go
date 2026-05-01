@@ -90,7 +90,7 @@ func (c *Checker) RunOpenClawDoctor(ctx context.Context) (Report, error) {
 			continue
 		}
 		doctorCmd := "/home/" + user.Username + "/.local/bin/openclaw doctor --json"
-		res, err := c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"su", "-", user.Username, "-c", doctorCmd}})
+		res, err := c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"su", "-", user.Username, "-c", doctorCmd}, Sudo: true})
 		if err != nil {
 			report.Add(CheckResult{
 				ID:       "openclaw-" + user.Username + "-doctor",
@@ -138,11 +138,11 @@ func (c *Checker) ApplyFixes(ctx context.Context, plan FixPlan) error {
 		var err error
 		switch fix.ID {
 		case "chmod-openclaw-dir":
-			_, err = c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"chmod", "0700", homePath(fix.Target, ".openclaw")}})
+			_, err = c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"chmod", "0700", homePath(fix.Target, ".openclaw")}, Sudo: true})
 		case "chmod-openclaw-config":
-			_, err = c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"chmod", "0600", homePath(fix.Target, ".openclaw/openclaw.json")}})
+			_, err = c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"chmod", "0600", homePath(fix.Target, ".openclaw/openclaw.json")}, Sudo: true})
 		case "chmod-overlay-dir":
-			_, err = c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"chmod", "0700", homePath(fix.Target, ".openclaw-overlay")}})
+			_, err = c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"chmod", "0700", homePath(fix.Target, ".openclaw-overlay")}, Sudo: true})
 		case "repair-umask-profile":
 			err = c.FS.WriteFile(c.Opts.UmaskProfilePath, []byte("umask 0077\n"), 0o644)
 		default:
@@ -213,7 +213,7 @@ func (c *Checker) userChecks(ctx context.Context, report *Report, users []state.
 }
 
 func (c *Checker) checkLinger(ctx context.Context, report *Report, user state.User) {
-	res, err := c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"loginctl", "show-user", user.Username, "-p", "Linger", "--value"}})
+	res, err := c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"loginctl", "show-user", user.Username, "-p", "Linger", "--value"}, Sudo: true})
 	if err != nil {
 		report.Add(result("user-"+user.Username+"-linger", "users", user.Username, StatusFail, "linger check failed"))
 		return
@@ -227,7 +227,7 @@ func (c *Checker) checkLinger(ctx context.Context, report *Report, user state.Us
 
 func (c *Checker) checkTenantRuntime(ctx context.Context, report *Report, user state.User) {
 	cmd := "/home/" + user.Username + "/.local/bin/openclaw --version"
-	res, err := c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"su", "-", user.Username, "-c", cmd}})
+	res, err := c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"su", "-", user.Username, "-c", cmd}, Sudo: true})
 	if err == nil && strings.TrimSpace(res.Stdout) != "" {
 		report.Add(result("user-"+user.Username+"-openclaw", "users", user.Username, StatusOK, "tenant OpenClaw available"))
 		return
@@ -236,7 +236,7 @@ func (c *Checker) checkTenantRuntime(ctx context.Context, report *Report, user s
 }
 
 func (c *Checker) checkUserService(ctx context.Context, report *Report, user state.User, service, label string) {
-	res, err := c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"su", "-", user.Username, "-c", "systemctl --user is-active " + service}})
+	res, err := c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"su", "-", user.Username, "-c", "systemctl --user is-active " + service}, Sudo: true})
 	if err == nil && strings.TrimSpace(res.Stdout) == "active" {
 		report.Add(result("user-"+user.Username+"-"+label, "users", user.Username, StatusOK, label+" active"))
 		return
@@ -245,7 +245,7 @@ func (c *Checker) checkUserService(ctx context.Context, report *Report, user sta
 }
 
 func (c *Checker) checkPort(ctx context.Context, report *Report, user state.User) {
-	res, err := c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"ss", "-ltnp"}})
+	res, err := c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"ss", "-ltnp"}, Sudo: true})
 	if err != nil {
 		report.Add(result("user-"+user.Username+"-port", "network", user.Username, StatusWarn, "port check failed"))
 		return

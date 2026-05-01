@@ -105,7 +105,10 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (*state.Backup,
 		return nil, err
 	}
 
-	res, err := m.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"su", "-", username, "-c", "openclaw backup create --output ~/.openclaw-backup-tmp --verify"}})
+	res, err := m.Exec.Run(ctx, shell.ExecOpts{
+		Cmd:  []string{"su", "-", username, "-c", "openclaw backup create --output ~/.openclaw-backup-tmp --verify"},
+		Sudo: true,
+	})
 	if err != nil {
 		err = fmt.Errorf("create openclaw backup: %w", err)
 		m.emit(audit.ActionBackupCreate, username, audit.ResultError, nil, err, start)
@@ -132,7 +135,7 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (*state.Backup,
 		"-pass", "file:" + m.Opts.MasterKeyPath,
 		"-in", source,
 		"-out", dest,
-	}}); err != nil {
+	}, Sudo: true}); err != nil {
 		err = fmt.Errorf("encrypt backup: %w", err)
 		_ = m.FS.Remove(dest)
 		m.emit(audit.ActionBackupCreate, username, audit.ResultError, nil, err, start)
@@ -196,7 +199,7 @@ func (m *Manager) Restore(ctx context.Context, req RestoreRequest) error {
 		"-pass", "file:" + m.Opts.MasterKeyPath,
 		"-in", b.Path,
 		"-out", tmpArchive,
-	}}); err != nil {
+	}, Sudo: true}); err != nil {
 		err = fmt.Errorf("decrypt backup: %w", err)
 		m.emit(audit.ActionBackupRestore, username, audit.ResultError, b, err, start)
 		return err
@@ -214,7 +217,7 @@ func (m *Manager) Restore(ctx context.Context, req RestoreRequest) error {
 		{"su", "-", username, "-c", "systemctl --user start openclaw-gateway.service"},
 	}
 	for _, cmd := range commands {
-		if _, err := m.Exec.Run(ctx, shell.ExecOpts{Cmd: cmd}); err != nil {
+		if _, err := m.Exec.Run(ctx, shell.ExecOpts{Cmd: cmd, Sudo: true}); err != nil {
 			err = fmt.Errorf("restore step %q: %w", strings.Join(cmd, " "), err)
 			m.emit(audit.ActionBackupRestore, username, audit.ResultError, b, err, start)
 			return err
@@ -248,7 +251,7 @@ func (m *Manager) InstallTimer(ctx context.Context, username string) error {
 		{"systemctl", "daemon-reload"},
 		{"systemctl", "enable", "--now", "openclaw-backup@" + username + ".timer"},
 	} {
-		if _, err := m.Exec.Run(ctx, shell.ExecOpts{Cmd: cmd}); err != nil {
+		if _, err := m.Exec.Run(ctx, shell.ExecOpts{Cmd: cmd, Sudo: true}); err != nil {
 			return fmt.Errorf("install backup timer step %q: %w", strings.Join(cmd, " "), err)
 		}
 	}
