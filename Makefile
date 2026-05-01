@@ -73,6 +73,7 @@ install-check: build ## Verify install target installs runtime files into expect
 	done; \
 	for tmpl in \
 		cloudflared-config.tmpl \
+		cloudflared.service.tmpl \
 		openclaw-overlay-api.service.tmpl \
 		openclaw-gateway.service.tmpl \
 		openclaw-overlay-watcher.service.tmpl \

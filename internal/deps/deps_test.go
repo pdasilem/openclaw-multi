@@ -163,6 +163,7 @@ func TestEnsureCloudflaredVariantA(t *testing.T) {
 			shell.OKResponse("Created tunnel openclaw-multi with id abc-123-uuid"), // tunnel create
 			shell.OKResponse(""),                                                   // route dns
 			shell.OKResponse(""),                                                   // ingress validate
+			shell.OKResponse(""),                                                   // systemctl daemon-reload
 			shell.OKResponse(""),                                                   // systemctl enable
 		},
 	}
@@ -187,6 +188,9 @@ func TestEnsureCloudflaredVariantA(t *testing.T) {
 	if _, err := fs.Stat("/etc/cloudflared/abc-123-uuid.json"); err != nil {
 		t.Error("expected cloudflared credentials file to be copied")
 	}
+	if _, err := fs.Stat(cfServicePath); err != nil {
+		t.Error("expected cloudflared systemd service to be written")
+	}
 }
 
 func TestEnsureCloudflaredUsesExistingTunnel(t *testing.T) {
@@ -195,6 +199,7 @@ func TestEnsureCloudflaredUsesExistingTunnel(t *testing.T) {
 		Responses: []shell.ExecResult{
 			shell.OKResponse("cloudflared 2024.1.0"),
 			shell.OKResponse(`[{"id":"11111111-2222-3333-4444-555555555555","name":"openclaw-multi"}]`),
+			shell.OKResponse(""),
 			shell.OKResponse(""),
 			shell.OKResponse(""),
 			shell.OKResponse(""),
@@ -222,12 +227,48 @@ func TestEnsureCloudflaredUsesExistingTunnel(t *testing.T) {
 	}
 }
 
+func TestEnsureCloudflaredKeepsExistingService(t *testing.T) {
+	t.Setenv("HOME", "/home/test")
+	exec := &shell.MockExecutor{
+		Responses: []shell.ExecResult{
+			shell.OKResponse("cloudflared 2024.1.0"),
+			shell.OKResponse(`[{"id":"11111111-2222-3333-4444-555555555555","name":"openclaw-multi"}]`),
+			shell.OKResponse(""),
+			shell.OKResponse(""),
+			shell.OKResponse(""),
+			shell.OKResponse(""),
+		},
+	}
+	fs := shell.NewMemFS()
+	cfg := config.Defaults()
+	cfg.Domain = "example.com"
+	cfg.Subdomain = "oc"
+	if err := fs.WriteFile("/home/test/.cloudflared/11111111-2222-3333-4444-555555555555.json", []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := fs.WriteFile(cfServicePath, []byte("existing service"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := EnsureCloudflared(context.Background(), exec, fs, mockRenderer("new service\n"), cfg, TunnelModeAccount, ConflictOverwrite); err != nil {
+		t.Fatalf("EnsureCloudflared existing service: %v", err)
+	}
+	data, err := fs.ReadFile(cfServicePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "existing service" {
+		t.Fatalf("expected existing service to be kept, got %q", string(data))
+	}
+}
+
 func TestEnsureCloudflaredUsesConfiguredTunnelName(t *testing.T) {
 	t.Setenv("HOME", "/home/test")
 	exec := &shell.MockExecutor{
 		Responses: []shell.ExecResult{
 			shell.OKResponse("cloudflared 2024.1.0"),
 			shell.OKResponse(`[{"id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","name":"oc-multi"}]`),
+			shell.OKResponse(""),
 			shell.OKResponse(""),
 			shell.OKResponse(""),
 			shell.OKResponse(""),
@@ -260,6 +301,7 @@ func TestEnsureCloudflaredUsesConfiguredTunnelIDWithoutLookup(t *testing.T) {
 	exec := &shell.MockExecutor{
 		Responses: []shell.ExecResult{
 			shell.OKResponse("cloudflared 2024.1.0"),
+			shell.OKResponse(""),
 			shell.OKResponse(""),
 			shell.OKResponse(""),
 			shell.OKResponse(""),
@@ -337,6 +379,7 @@ func TestEnsureCloudflaredConflictBackup(t *testing.T) {
 			shell.OKResponse("cloudflared 2024.1.0"),
 			shell.OKResponse("[]"),
 			shell.OKResponse("Created tunnel openclaw-multi with id xyz-789"),
+			shell.OKResponse(""),
 			shell.OKResponse(""),
 			shell.OKResponse(""),
 			shell.OKResponse(""),
@@ -473,9 +516,10 @@ func TestInstallCloudflaredCalled(t *testing.T) {
 			shell.OKResponse("Created tunnel openclaw-multi with id 99999999-8888-7777-6666-555555555555"),
 			shell.OKResponse(""), // route dns
 			shell.OKResponse(""), // ingress validate
+			shell.OKResponse(""), // systemctl daemon-reload
 			shell.OKResponse(""), // systemctl enable
 		},
-		Errors: []error{shell.ErrNonZeroExit{ExitCode: 127}, nil, nil, nil, nil, nil, nil, nil},
+		Errors: []error{shell.ErrNonZeroExit{ExitCode: 127}, nil, nil, nil, nil, nil, nil, nil, nil},
 	}
 	fs := shell.NewMemFS()
 	cfg := config.Defaults()

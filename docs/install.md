@@ -188,10 +188,15 @@ Update flow:
 - `sudo openclaw-multi system-prepare` проверяет live config:
   отсутствующий `/etc/openclaw-multi/config.yml` создается из defaults,
   существующий предлагает `[K]eep/[R]eplace/[A]bort`;
+- после создания или replace app config команда открывает
+  `/etc/openclaw-multi/config.yml` в `$EDITOR`, а если `$EDITOR` пустой, в
+  `nano`; заполнить нужно как минимум `domain`, `subdomain`, `tunnel_name`,
+  `tunnel_id`, `cloudflare_zone_id`, `cloudflare_api_token`,
+  `cloudflared_credentials_file`;
 - `/etc/cloudflared/config.yml` создается только если уже заполнены
-  `tunnel_id` и `cloudflared_credentials_file`; иначе step явно сообщает
-  `skipped`, потому что без tunnel data валидный named-tunnel config собрать
-  нельзя;
+  `tunnel_id` и `cloudflared_credentials_file`; если этих полей нет,
+  `system-prepare` снова открывает app config для заполнения и после закрытия
+  перечитывает его;
 - при replace существующего config сначала создается timestamp backup
   `*.YYYYMMDDTHHMMSSZ.bak`.
 
@@ -206,6 +211,7 @@ test -x /usr/local/bin/openclaw-multi
 test -x /usr/local/bin/openclaw-overlay-api
 test -x /usr/local/bin/openclaw-overlay-watcher
 test -f /opt/openclaw-multi/templates/cloudflared-config.tmpl
+test -f /opt/openclaw-multi/templates/cloudflared.service.tmpl
 test -f /opt/openclaw-multi/templates/openclaw-overlay-api.service.tmpl
 test -f /opt/openclaw-multi/templates/openclaw-gateway.service.tmpl
 test -f /opt/openclaw-multi/templates/openclaw-overlay-watcher.service.tmpl
@@ -318,6 +324,7 @@ command -v cloudflared
 test -d /home/ubuntu/openclaw-multi
 test -f /etc/cloudflared/<tunnel_id>.json
 test -f /opt/openclaw-multi/templates/cloudflared-config.tmpl
+test -f /opt/openclaw-multi/templates/cloudflared.service.tmpl
 test -f /opt/openclaw-multi/templates/openclaw-overlay-api.service.tmpl
 test -w /var/lib/openclaw-multi
 test -w /var/log/openclaw-multi

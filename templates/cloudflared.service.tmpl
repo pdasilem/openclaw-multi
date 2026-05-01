@@ -1,0 +1,15 @@
+[Unit]
+Description=Cloudflare Tunnel for OpenClaw Multi
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/env cloudflared tunnel --config /etc/cloudflared/config.yml run
+Restart=always
+RestartSec=5
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

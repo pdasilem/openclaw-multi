@@ -138,7 +138,14 @@ sudo openclaw-multi system-prepare
 `/etc/openclaw-multi/config.yml` и `/etc/cloudflared/config.yml` не
 перезаписывается этим шагом. `system-prepare` проверяет live config отдельно:
 создает отсутствующий app config, существующий предлагает keep/replace/abort,
-а cloudflared config создает только после появления tunnel data.
+открывает app config в `$EDITOR`/`nano` для заполнения, а cloudflared config
+создает после появления `tunnel_id` и `cloudflared_credentials_file`.
+
+Cloudflared systemd unit вручную перед Fresh install стартовать не нужно.
+Fresh install сам пишет `/etc/cloudflared/config.yml`, устанавливает
+`/etc/systemd/system/cloudflared.service` из
+`/opt/openclaw-multi/templates/cloudflared.service.tmpl`, выполняет
+`systemctl daemon-reload` и затем `systemctl enable --now cloudflared`.
 
 Запустить OpenClaw Multi как admin `ubuntu` без `sudo`.
 Fresh install и add-user внутри TUI получают root-права только для конкретных

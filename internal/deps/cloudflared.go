@@ -32,7 +32,10 @@ const (
 const (
 	cfCredPath    = "/etc/cloudflared"
 	cfConfigPath  = "/etc/cloudflared/config.yml"
+	cfServicePath = "/etc/systemd/system/cloudflared.service"
 	cfServiceName = "cloudflared"
+	cfServiceTmpl = "cloudflared.service.tmpl"
+	cfConfigTmpl  = "cloudflared-config.tmpl"
 )
 
 var tunnelIDPattern = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
@@ -157,7 +160,7 @@ func setupAccountTunnel(
 		return err
 	}
 	cfg.CloudflaredCredentialsFile = credFile
-	content, err := renderer("cloudflared-config.tmpl", map[string]string{
+	content, err := renderer(cfConfigTmpl, map[string]string{
 		"TUNNEL_ID":               tunnelID,
 		"TUNNEL_CREDENTIALS_FILE": credFile,
 	})
@@ -176,12 +179,47 @@ func setupAccountTunnel(
 		return fmt.Errorf("cloudflared ingress validate: %w", err)
 	}
 
+	if err := ensureCloudflaredService(ctx, exec, fs, renderer); err != nil {
+		return err
+	}
+
 	// Enable and start service.
 	if _, err := exec.Run(ctx, shell.ExecOpts{
 		Cmd:  []string{"systemctl", "enable", "--now", cfServiceName},
 		Sudo: true,
 	}); err != nil {
 		return fmt.Errorf("systemctl enable cloudflared: %w", err)
+	}
+	return nil
+}
+
+func ensureCloudflaredService(
+	ctx context.Context,
+	exec shell.Executor,
+	fs shell.FS,
+	renderer func(tmpl string, vars map[string]string) (string, error),
+) error {
+	if _, err := fs.Stat(cfServicePath); err == nil {
+		return reloadSystemd(ctx, exec)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat cloudflared service: %w", err)
+	}
+	content, err := renderer(cfServiceTmpl, nil)
+	if err != nil {
+		return fmt.Errorf("render cloudflared service: %w", err)
+	}
+	if err := fs.WriteFile(cfServicePath, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("write cloudflared service: %w", err)
+	}
+	return reloadSystemd(ctx, exec)
+}
+
+func reloadSystemd(ctx context.Context, exec shell.Executor) error {
+	if _, err := exec.Run(ctx, shell.ExecOpts{
+		Cmd:  []string{"systemctl", "daemon-reload"},
+		Sudo: true,
+	}); err != nil {
+		return fmt.Errorf("systemctl daemon-reload: %w", err)
 	}
 	return nil
 }

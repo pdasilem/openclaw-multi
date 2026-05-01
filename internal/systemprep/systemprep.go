@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strings"
@@ -67,74 +68,87 @@ func Run(ctx context.Context, exec shell.Executor) ([]string, error) {
 
 func reconcileConfigs(in *bufio.Reader) ([]string, error) {
 	var actions []string
-	action, err := reconcileOverlayConfig(in)
+	action, edit, err := reconcileOverlayConfig(in)
 	if action != "" {
 		actions = append(actions, action)
 	}
 	if err != nil {
 		return actions, err
 	}
-	action, err = reconcileCloudflaredConfig(in)
+	if edit {
+		if err := editFile(overlayConfigPath); err != nil {
+			return actions, err
+		}
+		actions = append(actions, fmt.Sprintf("edited %s", overlayConfigPath))
+	}
+	action, needsEdit, err := reconcileCloudflaredConfig(in)
+	if needsEdit && err == nil {
+		if err := editFile(overlayConfigPath); err != nil {
+			return actions, err
+		}
+		actions = append(actions, fmt.Sprintf("edited %s", overlayConfigPath))
+		action, _, err = reconcileCloudflaredConfig(in)
+	}
 	if action != "" {
 		actions = append(actions, action)
 	}
 	return actions, err
 }
 
-func reconcileOverlayConfig(in *bufio.Reader) (string, error) {
+func reconcileOverlayConfig(in *bufio.Reader) (string, bool, error) {
 	data, err := yaml.Marshal(config.Defaults())
 	if err != nil {
-		return "", fmt.Errorf("marshal default overlay config: %w", err)
+		return "", false, fmt.Errorf("marshal default overlay config: %w", err)
 	}
 	if _, err := os.Stat(overlayConfigPath); err != nil {
 		if !os.IsNotExist(err) {
-			return "", fmt.Errorf("stat %s: %w", overlayConfigPath, err)
+			return "", false, fmt.Errorf("stat %s: %w", overlayConfigPath, err)
 		}
 		if err := writeRootFile(overlayConfigPath, data); err != nil {
-			return "", err
+			return "", false, err
 		}
-		return fmt.Sprintf("created %s mode=0600", overlayConfigPath), nil
+		return fmt.Sprintf("created %s mode=0600", overlayConfigPath), true, nil
 	}
 	replace, err := askReplace(in, overlayConfigPath)
 	if err != nil || !replace {
-		return fmt.Sprintf("kept existing %s", overlayConfigPath), err
+		return fmt.Sprintf("kept existing %s", overlayConfigPath), false, err
 	}
 	if err := backupFile(overlayConfigPath); err != nil {
-		return "", err
+		return "", false, err
 	}
 	if err := writeRootFile(overlayConfigPath, data); err != nil {
-		return "", err
+		return "", false, err
 	}
-	return fmt.Sprintf("replaced %s with default config after backup", overlayConfigPath), nil
+	return fmt.Sprintf("replaced %s with default config after backup", overlayConfigPath), true, nil
 }
 
-func reconcileCloudflaredConfig(in *bufio.Reader) (string, error) {
+func reconcileCloudflaredConfig(in *bufio.Reader) (string, bool, error) {
 	if _, err := os.Stat(cloudflaredConfigPath); err != nil && !os.IsNotExist(err) {
-		return "", fmt.Errorf("stat %s: %w", cloudflaredConfigPath, err)
+		return "", false, fmt.Errorf("stat %s: %w", cloudflaredConfigPath, err)
 	} else if err == nil {
 		replace, err := askReplace(in, cloudflaredConfigPath)
 		if err != nil || !replace {
-			return fmt.Sprintf("kept existing %s", cloudflaredConfigPath), err
+			return fmt.Sprintf("kept existing %s", cloudflaredConfigPath), false, err
 		}
 	}
 	cfg, err := config.Load(overlayConfigPath)
 	if err != nil {
-		return fmt.Sprintf("skipped %s: %s is not ready", cloudflaredConfigPath, overlayConfigPath), nil
+		return fmt.Sprintf("skipped %s: %s is not ready", cloudflaredConfigPath, overlayConfigPath), false, nil
 	}
 	if strings.TrimSpace(cfg.TunnelID) == "" || strings.TrimSpace(cfg.CloudflaredCredentialsFile) == "" {
-		return fmt.Sprintf("skipped %s: tunnel_id and cloudflared_credentials_file are not configured", cloudflaredConfigPath), nil
+		return fmt.Sprintf("waiting for %s: fill tunnel_id and cloudflared_credentials_file", cloudflaredConfigPath), true, nil
 	}
 	content := []byte(fmt.Sprintf("tunnel: %s\ncredentials-file: %s\n\ningress:\n  - service: http_status:404\n",
 		cfg.TunnelID, cfg.CloudflaredCredentialsFile))
 	if _, err := os.Stat(cloudflaredConfigPath); err == nil {
 		if err := backupFile(cloudflaredConfigPath); err != nil {
-			return "", err
+			return "", false, err
 		}
 	}
 	if err := writeRootFile(cloudflaredConfigPath, content); err != nil {
-		return "", err
+		return "", false, err
 	}
-	return fmt.Sprintf("created %s mode=0600", cloudflaredConfigPath), nil
+	return fmt.Sprintf("created %s mode=0600", cloudflaredConfigPath), false, nil
 }
 
 func askReplace(in *bufio.Reader, path string) (bool, error) {
@@ -189,6 +203,21 @@ func writeRootFile(path string, data []byte) error {
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
 		return fmt.Errorf("rename temp to %s: %w", path, err)
+	}
+	return nil
+}
+
+func editFile(path string) error {
+	editor := strings.TrimSpace(os.Getenv("EDITOR"))
+	if editor == "" {
+		editor = "nano"
+	}
+	cmd := exec.Command(editor, path) //nolint:gosec
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("edit %s with %s: %w", path, editor, err)
 	}
 	return nil
 }
