@@ -68,8 +68,8 @@ func TestManagerAddSuccess(t *testing.T) {
 	if user.GatewayURL != "https://gateway-alice.ui.example.com" {
 		t.Fatalf("GatewayURL: got %q", user.GatewayURL)
 	}
-	if exec.CallCount() != 16 {
-		t.Fatalf("expected 16 command calls, got %d", exec.CallCount())
+	if exec.CallCount() != 24 {
+		t.Fatalf("expected 24 command calls, got %d", exec.CallCount())
 	}
 	if got := strings.Join(exec.Calls[3].Cmd, " "); !strings.Contains(got, "systemctl start user@1001.service") {
 		t.Fatalf("expected user manager start after uid lookup, got %+v", exec.Calls[3].Cmd)
@@ -80,8 +80,8 @@ func TestManagerAddSuccess(t *testing.T) {
 	if !strings.Contains(exec.Calls[5].Stdin, "exec openclaw \"$@\"") {
 		t.Fatalf("expected tenant openclaw wrapper stdin, got %q", exec.Calls[5].Stdin)
 	}
-	if !strings.Contains(strings.Join(exec.Calls[5].Cmd, " "), "su - alice -c") || !strings.Contains(strings.Join(exec.Calls[5].Cmd, " "), "/home/alice/.local/bin/openclaw") {
-		t.Fatalf("expected tenant openclaw wrapper write as alice: %+v", exec.Calls[5].Cmd)
+	if got := strings.Join(exec.Calls[5].Cmd, " "); !strings.Contains(got, "-u alice -H bash -lc") || !strings.Contains(got, "/home/alice/.local/bin/openclaw") {
+		t.Fatalf("expected tenant openclaw wrapper write via sudo user shell: %+v", exec.Calls[5].Cmd)
 	}
 	if !strings.Contains(exec.Calls[6].Stdin, "gateway start --daemon false") {
 		t.Fatalf("expected tenant gateway wrapper stdin, got %q", exec.Calls[6].Stdin)
@@ -144,10 +144,15 @@ func TestManagerList(t *testing.T) {
 	}
 }
 
-func TestManagerAddValidationAndDuplicateErrorsBeforeCommands(t *testing.T) {
+func TestManagerAddValidationAndExistingStateReconciles(t *testing.T) {
 	ctx := context.Background()
 	store := openUserTestStore(t)
-	exec := &shell.MockExecutor{}
+	exec := &shell.MockExecutor{Responses: []shell.ExecResult{
+		shell.OKResponse(""),
+		shell.OKResponse(""),
+		shell.OKResponse("1001\n"),
+		shell.OKResponse(""),
+	}}
 	m := testManager(store, exec, watcherFS(), nil)
 	if _, err := m.Add(ctx, AddRequest{Username: "Root"}); !errors.Is(err, ErrInvalidUsername) {
 		t.Fatalf("expected ErrInvalidUsername, got %v", err)
@@ -155,14 +160,15 @@ func TestManagerAddValidationAndDuplicateErrorsBeforeCommands(t *testing.T) {
 	if exec.CallCount() != 0 {
 		t.Fatalf("expected no commands for invalid username")
 	}
-	if err := store.UpsertUser(ctx, state.User{Username: "alice", Port: 18789, Status: state.UserStatusActive}); err != nil {
+	if err := store.UpsertUser(ctx, state.User{Username: "alice", UID: 1001, Port: 18789, Status: state.UserStatusActive}); err != nil {
 		t.Fatalf("UpsertUser: %v", err)
 	}
-	if _, err := m.Add(ctx, AddRequest{Username: "alice"}); err == nil {
-		t.Fatal("expected duplicate error")
+	user, err := m.Add(ctx, AddRequest{Username: "alice"})
+	if err != nil {
+		t.Fatalf("expected existing state to reconcile, got %v", err)
 	}
-	if exec.CallCount() != 0 {
-		t.Fatalf("expected no commands for duplicate user")
+	if user.Port != 18789 || user.Status != state.UserStatusActive {
+		t.Fatalf("expected existing user to stay active on same port, got %+v", user)
 	}
 }
 
@@ -307,6 +313,20 @@ func TestManagerAddRouteFailureRollsBackState(t *testing.T) {
 	}
 }
 
+func TestManagerAddReadinessFailureDoesNotWriteActiveState(t *testing.T) {
+	ctx := context.Background()
+	store := openUserTestStore(t)
+	m := testManager(store, shell.FailAt(16, "missing openclaw state"), watcherFS(), nil)
+
+	_, err := m.Add(ctx, AddRequest{Username: "alice"})
+	if err == nil {
+		t.Fatal("expected readiness failure")
+	}
+	if _, err := store.GetUser(ctx, "alice"); !errors.Is(err, state.ErrNoUser) {
+		t.Fatalf("expected no active state write after readiness failure, got %v", err)
+	}
+}
+
 func TestManagerAddLateCommandFailures(t *testing.T) {
 	for _, failAt := range []int{3, 4, 5, 6, 7, 8, 9, 10, 11} {
 		t.Run(fmt.Sprintf("fail-at-%d", failAt), func(t *testing.T) {
@@ -359,6 +379,9 @@ func TestManagerDeactivateActivateAndRemove(t *testing.T) {
 	if err := m.Deactivate(ctx, "alice"); err != nil {
 		t.Fatalf("Deactivate: %v", err)
 	}
+	if got := strings.Join(exec.Calls[0].Cmd, " "); !strings.Contains(got, "-u alice env XDG_RUNTIME_DIR=/run/user/1001") || !strings.Contains(got, "systemctl --user stop") {
+		t.Fatalf("expected deactivate to stop user services via sudo user systemctl, got %+v", exec.Calls[0].Cmd)
+	}
 	got, err := store.GetUser(ctx, "alice")
 	if err != nil {
 		t.Fatalf("GetUser paused: %v", err)
@@ -370,6 +393,9 @@ func TestManagerDeactivateActivateAndRemove(t *testing.T) {
 	if err := m.Activate(ctx, "alice"); err != nil {
 		t.Fatalf("Activate: %v", err)
 	}
+	if !callsContain(exec.Calls, "-u alice env XDG_RUNTIME_DIR=/run/user/1001", "systemctl --user enable --now openclaw-gateway.service") {
+		t.Fatalf("expected activate to reconcile gateway service via sudo user systemctl, got %+v", exec.Calls)
+	}
 	got, err = store.GetUser(ctx, "alice")
 	if err != nil {
 		t.Fatalf("GetUser active: %v", err)
@@ -380,6 +406,11 @@ func TestManagerDeactivateActivateAndRemove(t *testing.T) {
 
 	if err := m.Remove(ctx, RemoveRequest{Username: "alice"}); err != nil {
 		t.Fatalf("Remove: %v", err)
+	}
+	for _, call := range exec.Calls {
+		if len(call.Cmd) >= 2 && call.Cmd[0] == "s"+"u" && call.Cmd[1] == "-" {
+			t.Fatalf("legacy tenant shell command must not be used: %+v", call.Cmd)
+		}
 	}
 	_, err = store.GetUser(ctx, "alice")
 	if !errors.Is(err, state.ErrNoUser) {
@@ -403,7 +434,7 @@ func TestManagerDeactivateActivateIdempotentAndUnknown(t *testing.T) {
 	if err := m.Deactivate(ctx, "missing"); !errors.Is(err, state.ErrNoUser) {
 		t.Fatalf("expected ErrNoUser, got %v", err)
 	}
-	if err := store.UpsertUser(ctx, state.User{Username: "alice", Port: 18789, Status: state.UserStatusPaused}); err != nil {
+	if err := store.UpsertUser(ctx, state.User{Username: "alice", UID: 1001, Port: 18789, Status: state.UserStatusPaused}); err != nil {
 		t.Fatalf("UpsertUser: %v", err)
 	}
 	exec.Reset()
@@ -420,8 +451,8 @@ func TestManagerDeactivateActivateIdempotentAndUnknown(t *testing.T) {
 	if err := m.Activate(ctx, "alice"); err != nil {
 		t.Fatalf("Activate active: %v", err)
 	}
-	if exec.CallCount() != 0 {
-		t.Fatalf("expected no commands for active activate, got %d", exec.CallCount())
+	if exec.CallCount() == 0 {
+		t.Fatal("expected active activate to verify/reconcile readiness")
 	}
 }
 
@@ -614,4 +645,21 @@ func watcherFS() *shell.MemFS {
 	fs.Files["templates/openclaw-overlay-watcher.service.tmpl"] = []byte("user=${USERNAME}\napi=${OVERLAY_API_ENDPOINT}\n")
 	fs.Files["templates/openclaw-gateway.service.tmpl"] = []byte("ExecStart=/home/${USERNAME}/.local/bin/openclaw-gateway-start\nport=${GATEWAY_PORT}\ntoken=${GATEWAY_TOKEN}\n")
 	return fs
+}
+
+func callsContain(calls []shell.ExecOpts, parts ...string) bool {
+	for _, call := range calls {
+		got := strings.Join(call.Cmd, " ")
+		matched := true
+		for _, part := range parts {
+			if !strings.Contains(got, part) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
 }

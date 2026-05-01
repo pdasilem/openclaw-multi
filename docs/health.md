@@ -37,7 +37,7 @@ Paused users are skipped for runtime checks and `openclaw doctor`.
 The OpenClaw doctor action runs:
 
 ```bash
-su - <user> -c "openclaw doctor --json"
+sudo -u <user> -H bash -lc "/home/<user>/.local/bin/openclaw doctor --json"
 ```
 
 If JSON output is available, it is parsed into structured results. If JSON is

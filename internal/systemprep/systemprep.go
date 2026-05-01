@@ -169,7 +169,7 @@ func reconcileCloudflaredConfig(in *bufio.Reader) (string, bool, error) {
 
 func askExistingConfigAction(in *bufio.Reader, path string) (existingConfigAction, error) {
 	for {
-		fmt.Fprintf(os.Stderr, "%s exists. [K]eep/edit existing/[R]eplace with default/[A]bort: ", path)
+		fmt.Fprint(os.Stderr, path+" exists. [K]eep/edit existing/[R]eplace with default/[A]bort: ")
 		answer, err := in.ReadString('\n')
 		if err != nil {
 			return existingConfigKeep, fmt.Errorf("read answer for %s: %w", path, err)

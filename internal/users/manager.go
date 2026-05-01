@@ -83,7 +83,7 @@ func (m *Manager) List(ctx context.Context) ([]state.User, error) {
 	return m.Store.ListUsers(ctx)
 }
 
-// Add validates, bootstraps, records, and routes a new managed user.
+// Add ensures a managed user exists and is ready for active use.
 func (m *Manager) Add(ctx context.Context, req AddRequest) (*state.User, error) {
 	start := time.Now()
 	if err := m.ready(); err != nil {
@@ -98,13 +98,11 @@ func (m *Manager) Add(ctx context.Context, req AddRequest) (*state.User, error) 
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
-	exists, err := m.Store.UserExists(ctx, username)
-	if err != nil {
-		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
-		return nil, err
-	}
-	if exists {
-		err := fmt.Errorf("user %q already exists", username)
+	var previous *state.User
+	if user, err := m.Store.GetUser(ctx, username); err == nil {
+		copy := *user
+		previous = &copy
+	} else if !errors.Is(err, state.ErrNoUser) {
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
@@ -114,10 +112,16 @@ func (m *Manager) Add(ctx context.Context, req AddRequest) (*state.User, error) 
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
-	port, err := AllocateGatewayPort(m.Config, existing)
-	if err != nil {
-		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
-		return nil, err
+	port := 0
+	if previous != nil {
+		port = previous.Port
+	}
+	if port == 0 {
+		port, err = AllocateGatewayPort(m.Config, existing)
+		if err != nil {
+			m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
+			return nil, err
+		}
 	}
 	token, err := generateToken()
 	if err != nil {
@@ -133,10 +137,16 @@ func (m *Manager) Add(ctx context.Context, req AddRequest) (*state.User, error) 
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
-	uid, err := m.lookupUID(ctx, username)
-	if err != nil {
-		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
-		return nil, err
+	uid := 0
+	if previous != nil {
+		uid = previous.UID
+	}
+	if uid == 0 {
+		uid, err = m.lookupUID(ctx, username)
+		if err != nil {
+			m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
+			return nil, err
+		}
 	}
 	if err := m.ensureUserManager(ctx, uid); err != nil {
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
@@ -182,6 +192,10 @@ func (m *Manager) Add(ctx context.Context, req AddRequest) (*state.User, error) 
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
 		return nil, err
 	}
+	if err := m.verifyActiveReadiness(ctx, username, uid); err != nil {
+		m.emit(audit.ActionBootstrapUser, username, audit.ResultError, err, start)
+		return nil, err
+	}
 
 	gatewayURL, err := GatewayURL(m.Config, username)
 	if err != nil {
@@ -201,7 +215,11 @@ func (m *Manager) Add(ctx context.Context, req AddRequest) (*state.User, error) 
 		return nil, err
 	}
 	if _, err := m.Routes.EnableUserGateway(ctx, user); err != nil {
-		_ = m.Store.DeleteUser(ctx, username)
+		if previous != nil {
+			_ = m.Store.UpsertUser(ctx, *previous)
+		} else {
+			_ = m.Store.DeleteUser(ctx, username)
+		}
 		m.emit(audit.ActionBootstrapUser, username, audit.ResultRolledBack, err, start)
 		return nil, err
 	}
@@ -225,7 +243,7 @@ func (m *Manager) Deactivate(ctx context.Context, username string) error {
 		m.emit(audit.ActionDisableUser, username, audit.ResultOk, nil, start)
 		return nil
 	}
-	if err := m.run(ctx, []string{"su", "-", username, "-c", "systemctl --user stop openclaw-gateway.service openclaw-overlay-watcher.service"}); err != nil {
+	if err := m.runUserSystemctl(ctx, username, user.UID, "stop", "openclaw-gateway.service", "openclaw-overlay-watcher.service"); err != nil {
 		m.emit(audit.ActionDisableUser, username, audit.ResultError, err, start)
 		return err
 	}
@@ -258,25 +276,7 @@ func (m *Manager) Activate(ctx context.Context, username string) error {
 		m.emit(audit.ActionEnableUser, username, audit.ResultError, err, start)
 		return err
 	}
-	if user.Status == state.UserStatusActive {
-		m.emit(audit.ActionEnableUser, username, audit.ResultOk, nil, start)
-		return nil
-	}
-	if _, err := m.Routes.EnableUserGateway(ctx, *user); err != nil {
-		m.emit(audit.ActionEnableUser, username, audit.ResultError, err, start)
-		return err
-	}
-	if err := m.run(ctx, []string{"loginctl", "enable-linger", username}); err != nil {
-		m.emit(audit.ActionEnableUser, username, audit.ResultError, err, start)
-		return err
-	}
-	if err := m.run(ctx, []string{"su", "-", username, "-c", "systemctl --user start openclaw-gateway.service openclaw-overlay-watcher.service"}); err != nil {
-		m.emit(audit.ActionEnableUser, username, audit.ResultError, err, start)
-		return err
-	}
-	user.Status = state.UserStatusActive
-	user.Linger = true
-	if err := m.Store.UpsertUser(ctx, *user); err != nil {
+	if _, err := m.Add(ctx, AddRequest{Username: user.Username}); err != nil {
 		m.emit(audit.ActionEnableUser, username, audit.ResultError, err, start)
 		return err
 	}
@@ -313,7 +313,7 @@ func (m *Manager) Remove(ctx context.Context, req RemoveRequest) error {
 		return err
 	}
 	m.emit(audit.ActionDeleteRoute, username, audit.ResultOk, nil, start)
-	if err := m.run(ctx, []string{"su", "-", username, "-c", "openclaw uninstall --all --yes --non-interactive"}); err != nil {
+	if err := m.runTenantShell(ctx, username, "/home/"+username+"/.local/bin/openclaw uninstall --all --yes --non-interactive", ""); err != nil {
 		m.emit(audit.ActionDeleteUser, username, audit.ResultError, err, start)
 		return err
 	}
@@ -398,7 +398,7 @@ func (m *Manager) bootstrapTenantRuntime(ctx context.Context, username string) e
 		openclawInstallCommand,
 		"mkdir -p \"$HOME/.local/bin\"",
 	}, "\n")
-	return m.run(ctx, []string{"su", "-", username, "-c", script})
+	return m.runTenantShell(ctx, username, script, "")
 }
 
 func isUserAlreadyExists(err error) bool {
@@ -483,12 +483,7 @@ func (m *Manager) writeTenantFile(ctx context.Context, username string, path str
 		"cat > " + shellQuote(path),
 		"chmod " + shellQuote(mode) + " " + shellQuote(path),
 	}, "\n")
-	_, err := m.Exec.Run(ctx, shell.ExecOpts{
-		Cmd:   []string{"su", "-", username, "-c", script},
-		Sudo:  true,
-		Stdin: string(data),
-	})
-	if err != nil {
+	if err := m.runTenantShell(ctx, username, script, string(data)); err != nil {
 		return fmt.Errorf("run tenant file write %q: %w", path, err)
 	}
 	return nil
@@ -529,11 +524,53 @@ func (m *Manager) runOnboarding(ctx context.Context, username string, uid int, p
 		"export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/" + strconv.Itoa(uid) + "/bus",
 		onboardCmd,
 	}, "\n")
-	return m.run(ctx, []string{"su", "-", username, "-c", cmd})
+	return m.runTenantShell(ctx, username, cmd, "")
 }
 
 func (m *Manager) ensureUserManager(ctx context.Context, uid int) error {
 	return m.run(ctx, []string{"systemctl", "start", "user@" + strconv.Itoa(uid) + ".service"})
+}
+
+func (m *Manager) runTenantShell(ctx context.Context, username string, script string, stdin string) error {
+	_, err := m.Exec.Run(ctx, shell.ExecOpts{
+		Cmd:   []string{"-u", username, "-H", "bash", "-lc", script},
+		Sudo:  true,
+		Stdin: stdin,
+	})
+	if err != nil {
+		return fmt.Errorf("run tenant shell for %q: %w", username, err)
+	}
+	return nil
+}
+
+func (m *Manager) verifyActiveReadiness(ctx context.Context, username string, uid int) error {
+	checks := []struct {
+		name   string
+		script string
+	}{
+		{name: "tenant OpenClaw CLI", script: "test -x /home/" + username + "/.local/bin/openclaw"},
+		{name: "OpenClaw state dir", script: "test -d /home/" + username + "/.openclaw"},
+		{name: "OpenClaw config", script: "test -f /home/" + username + "/.openclaw/openclaw.json"},
+		{name: "overlay state dir", script: "test -d /home/" + username + "/.openclaw-overlay"},
+		{name: "gateway unit", script: "test -f /home/" + username + "/.config/systemd/user/openclaw-gateway.service"},
+		{name: "watcher unit", script: "test -f /home/" + username + "/.config/systemd/user/openclaw-overlay-watcher.service"},
+	}
+	for _, check := range checks {
+		if err := m.runTenantShell(ctx, username, check.script, ""); err != nil {
+			return fmt.Errorf("readiness %s: %w", check.name, err)
+		}
+	}
+	for _, service := range []string{"openclaw-gateway.service", "openclaw-overlay-watcher.service"} {
+		res, err := m.runUserSystemctlResult(ctx, username, uid, "is-active", service)
+		if err != nil {
+			return fmt.Errorf("readiness %s active: %w", service, err)
+		}
+		status := strings.TrimSpace(res.Stdout)
+		if status != "" && status != "active" {
+			return fmt.Errorf("readiness %s active: got %q", service, strings.TrimSpace(res.Stdout))
+		}
+	}
+	return nil
 }
 
 func (m *Manager) runUserSystemctl(ctx context.Context, username string, uid int, args ...string) error {
@@ -544,6 +581,16 @@ func (m *Manager) runUserSystemctl(ctx context.Context, username string, uid int
 		return fmt.Errorf("run user systemctl %q for %q: %w", strings.Join(args, " "), username, err)
 	}
 	return nil
+}
+
+func (m *Manager) runUserSystemctlResult(ctx context.Context, username string, uid int, args ...string) (shell.ExecResult, error) {
+	cmd := []string{"-u", username, "env", "XDG_RUNTIME_DIR=/run/user/" + strconv.Itoa(uid), "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/" + strconv.Itoa(uid) + "/bus", "systemctl", "--user"}
+	cmd = append(cmd, args...)
+	res, err := m.Exec.Run(ctx, shell.ExecOpts{Cmd: cmd, Sudo: true})
+	if err != nil {
+		return res, fmt.Errorf("run user systemctl %q for %q: %w", strings.Join(args, " "), username, err)
+	}
+	return res, nil
 }
 
 func shellQuote(s string) string {

@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -95,7 +96,7 @@ func (m doctorModel) View() string {
 			b.WriteString("  No approved fixes available.\n")
 		}
 		for _, fix := range m.fixes.Fixes {
-			fmt.Fprintf(&b, "  [%s] %s: %s\n", fix.ID, fix.Target, fix.Message)
+			writeWrappedStatusLine(&b, "["+fix.ID+"] "+fix.Target+":", fix.Message)
 		}
 		b.WriteString("\nEnter apply   Esc cancel")
 		return b.String()
@@ -103,7 +104,10 @@ func (m doctorModel) View() string {
 
 	summary := m.report.Summary()
 	if len(m.report.Results) > 0 {
-		fmt.Fprintf(&b, "\nSummary: ok=%d warn=%d fail=%d skipped=%d\n\n", summary.OK, summary.Warn, summary.Fail, summary.Skipped)
+		b.WriteString("\nSummary: ok=" + strconv.Itoa(summary.OK) +
+			" warn=" + strconv.Itoa(summary.Warn) +
+			" fail=" + strconv.Itoa(summary.Fail) +
+			" skipped=" + strconv.Itoa(summary.Skipped) + "\n\n")
 		current := ""
 		for _, result := range m.report.Results {
 			if result.Category != current {
@@ -114,7 +118,7 @@ func (m doctorModel) View() string {
 			if result.Fixable {
 				fix = " [fixable]"
 			}
-			fmt.Fprintf(&b, "  [%s] %s: %s%s\n", result.Status, result.Target, result.Message, fix)
+			writeWrappedStatusLine(&b, "["+string(result.Status)+"] "+result.Target+":", result.Message+fix)
 		}
 	}
 	b.WriteString("\nr run checks   d run openclaw doctor   f review fixes   q back")

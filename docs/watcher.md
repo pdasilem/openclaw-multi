@@ -118,19 +118,15 @@ User service запускает watcher так:
 Проверка сервиса под managed пользователем:
 
 ```bash
-su - <user>
-systemctl --user status openclaw-overlay-watcher --no-pager
-exit
+uid=$(id -u <user>)
+sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus systemctl --user status openclaw-overlay-watcher --no-pager
 ```
 
 На VPS админский пользователь - `ubuntu`, root shell доступен через
-passwordless `sudo -i`. Для ручной проверки tenant boundary из root shell:
+passwordless `sudo`. Для ручной проверки tenant boundary:
 
 ```bash
-su - <user>
-id
-test -f ~/.openclaw/openclaw.json
-exit
+sudo -u <user> -H bash -lc 'id; test -f ~/.openclaw/openclaw.json'
 ```
 
 ## Логи
@@ -138,10 +134,9 @@ exit
 Логи watcher:
 
 ```bash
-su - <user>
-journalctl --user -u openclaw-overlay-watcher --no-pager -n 300
-journalctl --user -u openclaw-overlay-watcher -f
-exit
+uid=$(id -u <user>)
+sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus journalctl --user -u openclaw-overlay-watcher --no-pager -n 300
+sudo -u <user> env XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus journalctl --user -u openclaw-overlay-watcher -f
 ```
 
 Логи overlay-API:
@@ -153,17 +148,13 @@ journalctl -u openclaw-overlay-api --no-pager -n 300
 Watcher state:
 
 ```bash
-su - <user>
-cat ~/.openclaw-overlay/watcher.state
-exit
+sudo -u <user> -H bash -lc 'cat ~/.openclaw-overlay/watcher.state'
 ```
 
 OpenClaw config с секретами нужно смотреть осторожно:
 
 ```bash
-su - <user>
-sed -n '1,220p' ~/.openclaw/openclaw.json
-exit
+sudo -u <user> -H bash -lc "sed -n '1,220p' ~/.openclaw/openclaw.json"
 ```
 
 Перед передачей логов или config нужно редактировать:

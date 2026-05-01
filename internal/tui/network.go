@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -147,15 +148,16 @@ func (m networkModel) View() string {
 
 func (m networkModel) renderReport(b *strings.Builder) string {
 	if m.report.Tailscale.Message != "" {
-		fmt.Fprintf(b, "\nSummary: ok=%d warn=%d fail=%d skipped=%d\n\n",
-			m.report.Summary.OK, m.report.Summary.Warn, m.report.Summary.Fail, m.report.Summary.Skipped)
-		fmt.Fprintf(b, "Tailscale: [%s] %s", m.report.Tailscale.Status, m.report.Tailscale.Message)
+		b.WriteString("\nSummary: ok=" + strconv.Itoa(m.report.Summary.OK) +
+			" warn=" + strconv.Itoa(m.report.Summary.Warn) +
+			" fail=" + strconv.Itoa(m.report.Summary.Fail) +
+			" skipped=" + strconv.Itoa(m.report.Summary.Skipped) + "\n\n")
+		writeWrappedStatusLine(b, "Tailscale: ["+string(m.report.Tailscale.Status)+"]", m.report.Tailscale.Message)
 		if m.report.Tailscale.IP != "" {
-			fmt.Fprintf(b, " (%s)", m.report.Tailscale.IP)
+			b.WriteString("    IP: " + m.report.Tailscale.IP + "\n")
 		}
-		b.WriteByte('\n')
-		fmt.Fprintf(b, "Cloudflare: [%s] %s\n", m.report.Cloudflare.Status, m.report.Cloudflare.Message)
-		fmt.Fprintf(b, "UFW: [%s] %s\n", m.report.UFW.Status, m.report.UFW.Message)
+		writeWrappedStatusLine(b, "Cloudflare: ["+string(m.report.Cloudflare.Status)+"]", m.report.Cloudflare.Message)
+		writeWrappedStatusLine(b, "UFW: ["+string(m.report.UFW.Status)+"]", m.report.UFW.Message)
 		if len(m.report.Cloudflare.Routes) > 0 {
 			b.WriteString("\nRoutes:\n")
 			for _, route := range m.report.Cloudflare.Routes {
@@ -163,19 +165,19 @@ func (m networkModel) renderReport(b *strings.Builder) string {
 				if route.Enabled {
 					enabled = "enabled"
 				}
-				fmt.Fprintf(b, "  %s -> localhost:%d (%s)\n", route.Hostname, route.LocalPort, enabled)
+				b.WriteString("  " + route.Hostname + " -> localhost:" + strconv.Itoa(route.LocalPort) + " (" + enabled + ")\n")
 			}
 		}
 		if len(m.report.Ports) > 0 {
 			b.WriteString("\nListening ports:\n")
 			for _, port := range m.report.Ports {
-				fmt.Fprintf(b, "  [%s] %s:%d %s\n", port.Status, port.Address, port.Port, port.Message)
+				writeWrappedStatusLine(b, "["+string(port.Status)+"] "+port.Address+":"+strconv.Itoa(port.Port), port.Message)
 			}
 		}
 		if len(m.report.Probes) > 0 {
 			b.WriteString("\nGateway probes:\n")
 			for _, probe := range m.report.Probes {
-				fmt.Fprintf(b, "  [%s] %s: %s\n", probe.Status, probe.Hostname, probe.Message)
+				writeWrappedStatusLine(b, "["+string(probe.Status)+"] "+probe.Hostname+":", probe.Message)
 			}
 		}
 	}
@@ -185,21 +187,21 @@ func (m networkModel) renderReport(b *strings.Builder) string {
 
 func (m networkModel) renderDNSReview(b *strings.Builder) string {
 	b.WriteString("\nCloudflare DNS review:\n")
-	fmt.Fprintf(b, "  Action: %s\n", m.dnsPlan.Action)
-	fmt.Fprintf(b, "  Record: %s %s -> %s\n", m.dnsPlan.Record.Type, m.dnsPlan.Record.Name, m.dnsPlan.Record.Content)
+	b.WriteString("  Action: " + string(m.dnsPlan.Action) + "\n")
+	b.WriteString("  Record: " + m.dnsPlan.Record.Type + " " + m.dnsPlan.Record.Name + " -> " + m.dnsPlan.Record.Content + "\n")
 	if m.dnsPlan.Current != nil {
-		fmt.Fprintf(b, "  Current: %s\n", m.dnsPlan.Current.Content)
+		b.WriteString("  Current: " + m.dnsPlan.Current.Content + "\n")
 	}
-	fmt.Fprintf(b, "  Note: %s\n", m.dnsPlan.Message)
+	writeWrappedStatusLine(b, "Note:", m.dnsPlan.Message)
 	b.WriteString("\nEnter apply   Esc cancel")
 	return b.String()
 }
 
 func (m networkModel) renderUFWReview(b *strings.Builder) string {
 	b.WriteString("\nUFW review:\n")
-	fmt.Fprintf(b, "  Required ports: %s\n", intList(m.ufwPlan.RequiredPorts))
-	fmt.Fprintf(b, "  Missing ports: %s\n", intList(m.ufwPlan.MissingPorts))
-	fmt.Fprintf(b, "  Note: %s\n", m.ufwPlan.Message)
+	b.WriteString("  Required ports: " + intList(m.ufwPlan.RequiredPorts) + "\n")
+	b.WriteString("  Missing ports: " + intList(m.ufwPlan.MissingPorts) + "\n")
+	writeWrappedStatusLine(b, "Note:", m.ufwPlan.Message)
 	b.WriteString("\nEnter apply   Esc cancel")
 	return b.String()
 }

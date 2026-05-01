@@ -112,7 +112,7 @@ Backend `Create(ctx, username)`:
 1. Verify user exists in state.
 2. Ensure master key exists.
 3. Run:
-   `su - <user> -c "openclaw backup create --output ~/.openclaw-backup-tmp --verify"`.
+   `sudo -u <user> -H bash -lc "/home/<user>/.local/bin/openclaw backup create --output ~/.openclaw-backup-tmp --verify"`.
 4. Parse produced archive path from stdout.
 5. Encrypt archive to backup root path.
 6. Compute SHA-256 and size of the encrypted archive.

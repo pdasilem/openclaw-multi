@@ -207,7 +207,7 @@ Backend flow:
 1. Load managed users from state.
 2. Skip paused users by default.
 3. Run:
-   `su - <user> -c "openclaw doctor --json"`
+   `sudo -u <user> -H bash -lc "/home/<user>/.local/bin/openclaw doctor --json"`
 4. Parse JSON output if available.
 5. If JSON parse fails, use line-based parsing for obvious
    `ok`/`warn`/`error` markers.
@@ -386,7 +386,7 @@ propagation.
 
 **Acceptance criteria.**
 
-- [x] Runs `su - <user> -c "openclaw doctor --json"` through `Executor`.
+- [x] Runs `sudo -u <user> -H bash -lc "openclaw doctor --json"` through `Executor`.
 - [x] Skips paused users.
 - [x] Parses JSON doctor output when available.
 - [x] Falls back to line parsing for non-JSON output.

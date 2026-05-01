@@ -58,8 +58,8 @@ func RenderConfig(cfg *config.OverlayConfig, routes []state.Route) ([]byte, erro
 		return a.ID < b.ID
 	})
 	var b strings.Builder
-	fmt.Fprintf(&b, "tunnel: %s\n", tunnelID)
-	fmt.Fprintf(&b, "credentials-file: %s\n\n", credentials)
+	b.WriteString("tunnel: " + tunnelID + "\n")
+	b.WriteString("credentials-file: " + credentials + "\n\n")
 	b.WriteString("ingress:\n")
 	for _, r := range enabled {
 		if strings.TrimSpace(r.Hostname) == "" {
@@ -68,8 +68,8 @@ func RenderConfig(cfg *config.OverlayConfig, routes []state.Route) ([]byte, erro
 		if r.LocalPort <= 0 {
 			return nil, fmt.Errorf("route %q has invalid local port", r.ID)
 		}
-		fmt.Fprintf(&b, "  - hostname: %s\n", r.Hostname)
-		fmt.Fprintf(&b, "    service: http://127.0.0.1:%d\n", r.LocalPort)
+		b.WriteString("  - hostname: " + r.Hostname + "\n")
+		b.WriteString("    service: http://127.0.0.1:" + fmt.Sprint(r.LocalPort) + "\n")
 	}
 	b.WriteString("  - service: http_status:404\n")
 	return []byte(b.String()), nil

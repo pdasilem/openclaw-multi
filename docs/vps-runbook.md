@@ -46,8 +46,7 @@ ssh ubuntu@<vps-host>
   команды;
 - если sudo попросит пароль, вводить его во встроенном terminal panel;
 - не запускать interactive TUI через `sudo openclaw-multi` или из `sudo -i`;
-- внутрь tenant переключаться только после создания user:
-  `sudo su - <username>`;
+- tenant-команды запускать через `sudo -u <username> -H bash -lc '<cmd>'`;
 - в примерах `<username>` заменить на реально созданного tenant, например
   `alice`.
 
@@ -221,10 +220,11 @@ Tenant создается не через OpenClaw onboarding, а через Ope
 6. run `sudo loginctl enable-linger <username>`;
 7. run `sudo systemctl start user@<uid>.service`;
 8. install/repair NVM, Node 24, and `openclaw@latest` under
-   `sudo su - <username>`;
+   `sudo -u <username> -H bash -lc '<command>'`;
 9. write tenant wrappers and user systemd units through tenant context, not by
    direct admin writes into `/home/<username>`;
-10. run non-interactive OpenClaw onboarding under `sudo su - <username>` with
+10. run non-interactive OpenClaw onboarding under
+    `sudo -u <username> -H bash -lc '<command>'` with
     `XDG_RUNTIME_DIR=/run/user/<uid>` and
     `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus`;
 11. pass gateway token through a temporary tenant-owned env file and use
@@ -243,20 +243,18 @@ Tenant создается не через OpenClaw onboarding, а через Ope
 id <username>
 getent passwd <username>
 loginctl show-user <username> -p Linger
-su - <username>
-pwd
-id
-node --version
-test -x ~/.local/bin/openclaw
-~/.local/bin/openclaw doctor
-exit
+sudo -u <username> -H bash -lc 'id; pwd; whoami'
+sudo -u <username> -H bash -lc 'node --version'
+sudo -u <username> -H bash -lc 'test -x ~/.local/bin/openclaw'
+sudo -u <username> -H bash -lc '~/.local/bin/openclaw doctor'
 ```
 
 Ожидаемо:
 
 - `<username>` существует как реальный Linux user.
 - Home directory: `/home/<username>`.
-- `su - <username>` переключает в boundary этого tenant.
+- `sudo -u <username> -H bash -lc ...` выполняет команду в boundary этого
+  tenant без tenant-пароля.
 - Для active user включен linger, чтобы user services жили после logout/reboot.
 
 ## OpenClaw onboarding внутри tenant
@@ -268,8 +266,8 @@ OpenClaw onboarding внутри этого пользователя.
 
 - не запускать onboarding от root;
 - не запускать onboarding от admin `ubuntu`, если настраивается tenant;
-- запускать только non-interactive onboarding через `su - <username>` из root
-  shell;
+- запускать только non-interactive onboarding через
+  `sudo -u <username> -H bash -lc ...`;
 - считать tenant готовым только после успешного `openclaw doctor`.
 
 Onboarding настраивает:
@@ -301,18 +299,16 @@ Onboarding настраивает:
 OpenClaw Multi должен автоматически подготовить tenant runtime до onboarding:
 
 ```bash
-su - <username>
-test -x ~/.local/bin/openclaw
-test -x ~/.local/bin/openclaw-gateway-start
-~/.local/bin/openclaw --version
-exit
+sudo -u <username> -H bash -lc 'test -x ~/.local/bin/openclaw'
+sudo -u <username> -H bash -lc 'test -x ~/.local/bin/openclaw-gateway-start'
+sudo -u <username> -H bash -lc '~/.local/bin/openclaw --version'
 ```
 
 Команда onboarding:
 
 ```bash
-su - <username>
-export OPENCLAW_GATEWAY_TOKEN='<gateway-token-generated-by-openclaw-multi>'
+sudo -u <username> -H bash -lc '
+export OPENCLAW_GATEWAY_TOKEN=<gateway-token-generated-by-openclaw-multi>
 export XDG_RUNTIME_DIR=/run/user/<uid>
 export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus
 ~/.local/bin/openclaw onboard --non-interactive \
@@ -328,7 +324,7 @@ export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus
   --accept-risk \
   --json
 ~/.local/bin/openclaw doctor
-exit
+'
 ```
 
 Ожидаемый config:
@@ -340,15 +336,13 @@ exit
 Собрать evidence после onboarding:
 
 ```bash
-su - <username>
-node --version
-~/.local/bin/openclaw --version
-~/.local/bin/openclaw doctor
-test -f ~/.openclaw/openclaw.json
-sed -n '1,220p' ~/.openclaw/openclaw.json
-find ~/.config/systemd/user -maxdepth 1 -type f -name '*openclaw*' -print
-systemctl --user list-units '*openclaw*' --no-pager
-exit
+sudo -u <username> -H bash -lc 'node --version'
+sudo -u <username> -H bash -lc '~/.local/bin/openclaw --version'
+sudo -u <username> -H bash -lc '~/.local/bin/openclaw doctor'
+sudo -u <username> -H bash -lc 'test -f ~/.openclaw/openclaw.json'
+sudo -u <username> -H bash -lc 'sed -n "1,220p" ~/.openclaw/openclaw.json'
+sudo -u <username> -H bash -lc 'find ~/.config/systemd/user -maxdepth 1 -type f -name "*openclaw*" -print'
+sudo -u <username> env XDG_RUNTIME_DIR=/run/user/<uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus systemctl --user list-units '*openclaw*' --no-pager
 ```
 
 После успешного onboarding TUI/OpenClaw Multi должен вернуться в overlay flow:
@@ -378,20 +372,16 @@ exit
 
 ```bash
 loginctl show-user <username> -p Linger
-su - <username>
-systemctl --user daemon-reload
-systemctl --user enable --now openclaw-gateway
-systemctl --user enable --now openclaw-overlay-watcher
-exit
+sudo -u <username> env XDG_RUNTIME_DIR=/run/user/<uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus systemctl --user daemon-reload
+sudo -u <username> env XDG_RUNTIME_DIR=/run/user/<uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus systemctl --user enable --now openclaw-gateway
+sudo -u <username> env XDG_RUNTIME_DIR=/run/user/<uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus systemctl --user enable --now openclaw-overlay-watcher
 ```
 
 Проверка:
 
 ```bash
-su - <username>
-systemctl --user status openclaw-gateway --no-pager
-systemctl --user status openclaw-overlay-watcher --no-pager
-exit
+sudo -u <username> env XDG_RUNTIME_DIR=/run/user/<uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus systemctl --user status openclaw-gateway --no-pager
+sudo -u <username> env XDG_RUNTIME_DIR=/run/user/<uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus systemctl --user status openclaw-overlay-watcher --no-pager
 ```
 
 Rendered gateway unit должен запускать tenant wrapper:
@@ -449,12 +439,10 @@ journalctl -u cloudflared -f
 Per-user services:
 
 ```bash
-su - <username>
-journalctl --user -u openclaw-gateway --no-pager -n 300
-journalctl --user -u openclaw-overlay-watcher --no-pager -n 300
-journalctl --user -u openclaw-gateway -f
-journalctl --user -u openclaw-overlay-watcher -f
-exit
+sudo -u <username> env XDG_RUNTIME_DIR=/run/user/<uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus journalctl --user -u openclaw-gateway --no-pager -n 300
+sudo -u <username> env XDG_RUNTIME_DIR=/run/user/<uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus journalctl --user -u openclaw-overlay-watcher --no-pager -n 300
+sudo -u <username> env XDG_RUNTIME_DIR=/run/user/<uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus journalctl --user -u openclaw-gateway -f
+sudo -u <username> env XDG_RUNTIME_DIR=/run/user/<uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus journalctl --user -u openclaw-overlay-watcher -f
 ```
 
 OpenClaw Multi audit log:
@@ -467,10 +455,8 @@ tail -f /var/log/openclaw-multi/audit.log
 Watcher state:
 
 ```bash
-su - <username>
-cat ~/.openclaw-overlay/watcher.state
-sed -n '1,220p' ~/.openclaw/openclaw.json
-exit
+sudo -u <username> -H bash -lc 'cat ~/.openclaw-overlay/watcher.state'
+sudo -u <username> -H bash -lc 'sed -n "1,220p" ~/.openclaw/openclaw.json'
 ```
 
 ## Снимок мониторинга
@@ -503,10 +489,8 @@ User service state:
 
 ```bash
 loginctl show-user <username> -p Linger
-su - <username>
-systemctl --user status openclaw-gateway --no-pager
-systemctl --user status openclaw-overlay-watcher --no-pager
-exit
+sudo -u <username> env XDG_RUNTIME_DIR=/run/user/<uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus systemctl --user status openclaw-gateway --no-pager
+sudo -u <username> env XDG_RUNTIME_DIR=/run/user/<uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus systemctl --user status openclaw-overlay-watcher --no-pager
 ```
 
 ## Порядок E2E
@@ -569,9 +553,8 @@ systemctl is-active cloudflared
 Managed user services:
 
 ```bash
-su - <username>
-systemctl --user restart openclaw-gateway
-systemctl --user restart openclaw-overlay-watcher
+sudo -u <username> env XDG_RUNTIME_DIR=/run/user/<uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus systemctl --user restart openclaw-gateway
+sudo -u <username> env XDG_RUNTIME_DIR=/run/user/<uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus systemctl --user restart openclaw-overlay-watcher
 exit
 ```
 

@@ -338,7 +338,7 @@ doc, — это **shared Gateway** (один процесс на всех юзе
 ```text
 1. useradd -m -s /bin/bash <username>             # системный
 2. loginctl enable-linger <username>              # systemd --user живёт после logout
-3. su - <username>:
+3. tenant shell files через `sudo -u <username> -H bash -lc '<command>'`:
      umask 0077
      mkdir -p ~/.openclaw && chmod 700 ~/.openclaw
      mkdir -p ~/.openclaw/workspace
@@ -351,9 +351,10 @@ doc, — это **shared Gateway** (один процесс на всех юзе
      # watcher для динамических tunnel-маршрутов
      envsubst < /opt/openclaw-multi/templates/openclaw-overlay-watcher.service.tmpl \
          > ~/.config/systemd/user/openclaw-overlay-watcher.service
-     systemctl --user daemon-reload
-     systemctl --user enable --now openclaw-gateway.service
-     systemctl --user enable --now openclaw-overlay-watcher.service
+   user services через:
+     sudo -u <username> env XDG_RUNTIME_DIR=/run/user/<uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus systemctl --user daemon-reload
+     sudo -u <username> env XDG_RUNTIME_DIR=/run/user/<uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus systemctl --user enable --now openclaw-gateway.service
+     sudo -u <username> env XDG_RUNTIME_DIR=/run/user/<uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus systemctl --user enable --now openclaw-overlay-watcher.service
 4. pre-allocate port range для cloudflared (например 18900-18999 для alice)
 5. вписать port range в overlay-API (locally on 127.0.0.1:18000)
 ```
@@ -489,7 +490,7 @@ OpenClaw. Для compliance (PCI/HIPAA) нужен отдельный хост; 
 | Компонент                                            | Чел.-дни       | Что входит                                                                                    |
 | ---------------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------- |
 | Wrapper `openclaw-multi` (bash)                      | 1–2            | подкоманды, port allocator, error handling                                                    |
-| Bootstrap + non-interactive onboard wiring           | 3–4            | основная сложность — стабильный `onboard --non-interactive` под `su -`                        |
+| Bootstrap + non-interactive onboard wiring           | 3–4            | основная сложность — стабильный `onboard --non-interactive` под `sudo -u <user> -H bash -lc` |
 | Шаблоны unit с hardening-директивами                 | 1–2            | PrivateTmp/ProtectHome/cgroup quotas                                                          |
 | Sysctl/fstab hardening                               | 1              | `/etc/sysctl.d/`, `/etc/fstab`                                                                |
 | Cloudflared сервис + wildcard DNS bootstrap          | 2              | install cloudflared, login, tunnel create, DNS-CNAME                                          |

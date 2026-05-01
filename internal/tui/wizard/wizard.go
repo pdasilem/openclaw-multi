@@ -4,6 +4,7 @@ package wizard
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -166,14 +167,14 @@ func (m Model) View() tea.View {
 	for i, step := range m.steps {
 		switch m.states[i] {
 		case stepPending:
-			fmt.Fprintf(&b, "  %s  %s\n", dimStyle.Render("○"), dimStyle.Render(step.Name()))
+			b.WriteString("  " + dimStyle.Render("○") + "  " + dimStyle.Render(step.Name()) + "\n")
 		case stepRunning:
 			frame := spinnerFrames[m.spinner%len(spinnerFrames)]
-			fmt.Fprintf(&b, "  %s  [%d/%d] %s...\n", frame, i+1, total, step.Name())
+			b.WriteString("  " + frame + "  [" + strconv.Itoa(i+1) + "/" + strconv.Itoa(total) + "] " + step.Name() + "...\n")
 		case stepDone:
-			fmt.Fprintf(&b, "  %s  %s\n", okStyle.Render("✓"), step.Name())
+			b.WriteString("  " + okStyle.Render("✓") + "  " + step.Name() + "\n")
 		case stepFailed:
-			fmt.Fprintf(&b, "  %s  %s\n", failStyle.Render("✗"), step.Name())
+			b.WriteString("  " + failStyle.Render("✗") + "  " + step.Name() + "\n")
 		}
 	}
 

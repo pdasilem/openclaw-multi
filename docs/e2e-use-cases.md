@@ -212,7 +212,8 @@ or already had OpenClaw/cloudflared/Tailscale state.
    appears before the command exits, including NVM/npm/OpenClaw install output.
 4. Check Linux user state with `id alice`.
 5. Check linger with `loginctl show-user alice -p Linger`.
-6. Switch into tenant context through sudo: `sudo su - alice`.
+6. Run tenant checks through sudo user context:
+   `sudo -u alice -H bash -lc '<command>'`.
 7. Confirm `node --version` reports major version `24` and comes from Alice's
    `nvm` path.
 8. Confirm OpenClaw CLI wrapper exists inside tenant and is owned by `alice`:
@@ -220,21 +221,30 @@ or already had OpenClaw/cloudflared/Tailscale state.
 9. Confirm generated user units are owned by `alice`:
    `ls -l /home/alice/.config/systemd/user/openclaw-*.service`.
 10. Confirm non-interactive onboarding ran inside tenant with daemon install:
-    `/home/alice/.local/bin/openclaw doctor` and
-    `systemctl --user status openclaw-gateway`.
-11. Confirm gateway config received overlay decisions:
+    `/home/alice/.local/bin/openclaw doctor` and user service status through
+    `sudo -u alice env XDG_RUNTIME_DIR=/run/user/<alice-uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<alice-uid>/bus systemctl --user status openclaw-gateway`.
+11. Confirm readiness files exist:
+    `sudo -u alice -H bash -lc 'test -d ~/.openclaw; test -f ~/.openclaw/openclaw.json; test -d ~/.openclaw-overlay'`.
+12. Confirm both user services are active:
+    `sudo -u alice env XDG_RUNTIME_DIR=/run/user/<alice-uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<alice-uid>/bus systemctl --user is-active openclaw-gateway openclaw-overlay-watcher`.
+13. Run Add User again for `alice` and confirm it converges idempotently
+    without changing port or creating duplicate state/routes.
+14. Confirm gateway config received overlay decisions:
     `--gateway-port`, `--gateway-bind loopback`, and
     `--gateway-token-ref-env OPENCLAW_GATEWAY_TOKEN` are reflected in generated
     OpenClaw config or service environment without exposing token value in
     shared evidence.
-12. Inspect route state in `state.db` or through the TUI route list.
-13. Confirm TUI shows the public gateway URL and generated token to the admin.
+15. Inspect route state in `state.db` or through the TUI route list.
+16. Confirm TUI shows the public gateway URL and generated token to the admin.
 
 **Expected result.**
 
 - User `alice` exists.
 - Linger is enabled.
-- OpenClaw gateway service is installed/running for the user.
+- OpenClaw gateway and watcher services are installed/running for the user.
+- Active state is recorded only after readiness passes.
+- Repeated Add User for the same username is idempotent and keeps the same
+  port/route identity.
 - OpenClaw onboarding is non-interactive and is not run as root or admin
   `ubuntu`; it runs as `alice`.
 - User systemd manager is started as `user@<uid>.service`; user service
@@ -253,8 +263,8 @@ or already had OpenClaw/cloudflared/Tailscale state.
 **Capture on failure.**
 
 - TUI transcript/screenshots.
-- `journalctl --user -u openclaw-gateway` for `alice`
-- `su - alice -c 'node --version; command -v node; test -x ~/.local/bin/openclaw; ~/.local/bin/openclaw doctor'`
+- `sudo -u alice env XDG_RUNTIME_DIR=/run/user/<alice-uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<alice-uid>/bus journalctl --user -u openclaw-gateway --no-pager -n 100`
+- `sudo -u alice -H bash -lc 'node --version; command -v node; test -x ~/.local/bin/openclaw; ~/.local/bin/openclaw doctor'`
 - Relevant rows from state DB with tokens redacted.
 
 ### UC-0202: Deactivate and Reactivate Managed User
@@ -277,19 +287,22 @@ or already had OpenClaw/cloudflared/Tailscale state.
    user's gateway.
 5. Reactivate `alice`.
 6. Check that linger and services are restored.
-7. After Phase 6, request the gateway URL again.
+7. Run Add User again for `alice` and confirm it keeps the user active/ready.
+8. After Phase 6, request the gateway URL again.
 
 **Expected result.**
 
 - Deactivate is idempotent and does not delete user data.
-- Reactivate restores the user's intended runtime state.
+- Reactivate restores the user's intended runtime state through the same
+  readiness path as Add User.
+- Repeated Add User after deactivate converges the user to active/ready.
 - After Phase 6, cloudflared route publication follows the enabled/disabled
   route state.
 
 **Capture on failure.**
 
 - `loginctl show-user alice -p Linger`
-- `su - alice -c 'systemctl --user status openclaw-gateway openclaw-overlay-watcher'`
+- `sudo -u alice env XDG_RUNTIME_DIR=/run/user/<alice-uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<alice-uid>/bus systemctl --user status openclaw-gateway openclaw-overlay-watcher`
 - `curl -vk https://gateway-alice.<subdomain>.<domain>/`
 
 ### UC-0203: Remove User Is Backup-First and Frees Port
@@ -418,7 +431,7 @@ or already had OpenClaw/cloudflared/Tailscale state.
 
 - TUI screenshot/transcript.
 - `journalctl -u openclaw-overlay-api -u cloudflared --no-pager -n 100`
-- `su - <user> -c '/home/<user>/.local/bin/openclaw doctor --json'`
+- `sudo -u <user> -H bash -lc '/home/<user>/.local/bin/openclaw doctor --json'`
 
 ### UC-0402: Apply Allowed Permission Fix
 

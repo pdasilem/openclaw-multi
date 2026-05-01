@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -96,7 +97,8 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (*state.Backup,
 		return nil, err
 	}
 	username := strings.TrimSpace(req.Username)
-	if _, err := m.Store.GetUser(ctx, username); err != nil {
+	user, err := m.Store.GetUser(ctx, username)
+	if err != nil {
 		m.emit(audit.ActionBackupCreate, username, audit.ResultError, nil, err, start)
 		return nil, err
 	}
@@ -105,10 +107,7 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (*state.Backup,
 		return nil, err
 	}
 
-	res, err := m.Exec.Run(ctx, shell.ExecOpts{
-		Cmd:  []string{"su", "-", username, "-c", "openclaw backup create --output ~/.openclaw-backup-tmp --verify"},
-		Sudo: true,
-	})
+	res, err := m.runTenantShell(ctx, *user, "/home/"+username+"/.local/bin/openclaw backup create --output ~/.openclaw-backup-tmp --verify")
 	if err != nil {
 		err = fmt.Errorf("create openclaw backup: %w", err)
 		m.emit(audit.ActionBackupCreate, username, audit.ResultError, nil, err, start)
@@ -175,7 +174,8 @@ func (m *Manager) Restore(ctx context.Context, req RestoreRequest) error {
 		return err
 	}
 	username := strings.TrimSpace(req.Username)
-	if _, err := m.Store.GetUser(ctx, username); err != nil {
+	user, err := m.Store.GetUser(ctx, username)
+	if err != nil {
 		m.emit(audit.ActionBackupRestore, username, audit.ResultError, nil, err, start)
 		return err
 	}
@@ -206,15 +206,22 @@ func (m *Manager) Restore(ctx context.Context, req RestoreRequest) error {
 	}
 	defer m.FS.Remove(tmpArchive) //nolint:errcheck
 
+	if _, err := m.runTenantShell(ctx, *user, "/home/"+username+"/.local/bin/openclaw backup verify "+tmpArchive); err != nil {
+		err = fmt.Errorf("restore verify backup: %w", err)
+		m.emit(audit.ActionBackupRestore, username, audit.ResultError, b, err, start)
+		return err
+	}
+	if _, err := m.runUserSystemctl(ctx, *user, "stop", "openclaw-gateway.service"); err != nil {
+		err = fmt.Errorf("restore stop gateway: %w", err)
+		m.emit(audit.ActionBackupRestore, username, audit.ResultError, b, err, start)
+		return err
+	}
 	commands := [][]string{
-		{"su", "-", username, "-c", "openclaw backup verify " + tmpArchive},
-		{"su", "-", username, "-c", "systemctl --user stop openclaw-gateway.service"},
 		{"mkdir", "-p", "/home/" + username + "/.openclaw-restore-tmp"},
 		{"tar", "-xzf", tmpArchive, "-C", "/home/" + username + "/.openclaw-restore-tmp"},
 		{"rm", "-rf", "/home/" + username + "/.openclaw"},
 		{"mv", "/home/" + username + "/.openclaw-restore-tmp/.openclaw", "/home/" + username + "/.openclaw"},
 		{"chown", "-R", username + ":" + username, "/home/" + username + "/.openclaw"},
-		{"su", "-", username, "-c", "systemctl --user start openclaw-gateway.service"},
 	}
 	for _, cmd := range commands {
 		if _, err := m.Exec.Run(ctx, shell.ExecOpts{Cmd: cmd, Sudo: true}); err != nil {
@@ -222,6 +229,11 @@ func (m *Manager) Restore(ctx context.Context, req RestoreRequest) error {
 			m.emit(audit.ActionBackupRestore, username, audit.ResultError, b, err, start)
 			return err
 		}
+	}
+	if _, err := m.runUserSystemctl(ctx, *user, "start", "openclaw-gateway.service"); err != nil {
+		err = fmt.Errorf("restore start gateway: %w", err)
+		m.emit(audit.ActionBackupRestore, username, audit.ResultError, b, err, start)
+		return err
 	}
 	m.emit(audit.ActionBackupRestore, username, audit.ResultOk, b, nil, start)
 	return nil
@@ -268,6 +280,16 @@ func (m *Manager) ready() error {
 		return errors.New("backup manager requires filesystem")
 	}
 	return nil
+}
+
+func (m *Manager) runTenantShell(ctx context.Context, user state.User, script string) (shell.ExecResult, error) {
+	return m.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"-u", user.Username, "-H", "bash", "-lc", script}, Sudo: true})
+}
+
+func (m *Manager) runUserSystemctl(ctx context.Context, user state.User, args ...string) (shell.ExecResult, error) {
+	cmd := []string{"-u", user.Username, "env", "XDG_RUNTIME_DIR=/run/user/" + strconv.Itoa(user.UID), "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/" + strconv.Itoa(user.UID) + "/bus", "systemctl", "--user"}
+	cmd = append(cmd, args...)
+	return m.Exec.Run(ctx, shell.ExecOpts{Cmd: cmd, Sudo: true})
 }
 
 func (m *Manager) ensureMasterKey() error {

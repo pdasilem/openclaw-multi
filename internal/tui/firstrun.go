@@ -68,7 +68,7 @@ func (f firstRunModel) View() string {
 		username = f.candidate.Username
 	}
 
-	fmt.Fprintf(&b, "  Detected admin candidate: %s\n\n", OkStyle.Render(username))
+	b.WriteString("  Detected admin candidate: " + OkStyle.Render(username) + "\n\n")
 	b.WriteString("  Save this account as the overlay administrator?\n\n")
 	b.WriteString("  Press Y / Enter to confirm, q to quit.\n")
 

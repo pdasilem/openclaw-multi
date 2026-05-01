@@ -81,6 +81,9 @@ func TestProbeDoesNotFailBatchOnSingleGatewayFailure(t *testing.T) {
 	if len(probes) != 1 || probes[0].Status != StatusFail {
 		t.Fatalf("unexpected probes: %+v", probes)
 	}
+	if probes[0].Message != "connection refused" {
+		t.Fatalf("expected curl stderr in probe message, got %q", probes[0].Message)
+	}
 }
 
 func TestPlanAndApplyWildcardDNSCreate(t *testing.T) {

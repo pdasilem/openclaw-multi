@@ -71,6 +71,22 @@ func TestDoctorScreenRunOpenClawDoctor(t *testing.T) {
 	}
 }
 
+func TestDoctorViewWrapsLongMessages(t *testing.T) {
+	m := newDoctor(&fakeDoctorService{})
+	m.report = doctorops.Report{Results: []doctorops.CheckResult{{
+		ID:       "user-pdasilem-gateway",
+		Category: "users",
+		Target:   "pdasilem",
+		Status:   doctorops.StatusFail,
+		Message:  "gateway not active: failed to connect to systemd user bus and returned a long diagnostic message",
+	}}}
+
+	view := m.View()
+	if !contains(view, "failed to connect to systemd") || !contains(view, "\n                   diagnostic message") {
+		t.Fatalf("expected wrapped doctor message, got %q", view)
+	}
+}
+
 func TestDoctorScreenFixReviewAndApply(t *testing.T) {
 	svc := &fakeDoctorService{
 		report: doctorops.Report{Results: []doctorops.CheckResult{{

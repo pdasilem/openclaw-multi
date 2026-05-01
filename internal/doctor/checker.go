@@ -89,8 +89,14 @@ func (c *Checker) RunOpenClawDoctor(ctx context.Context) (Report, error) {
 			})
 			continue
 		}
-		doctorCmd := "/home/" + user.Username + "/.local/bin/openclaw doctor --json"
-		res, err := c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"su", "-", user.Username, "-c", doctorCmd}, Sudo: true})
+		doctorCmd := strings.Join([]string{
+			"export XDG_RUNTIME_DIR=/run/user/" + strconv.Itoa(user.UID),
+			"export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/" + strconv.Itoa(user.UID) + "/bus",
+			"unit=/home/" + user.Username + "/.config/systemd/user/openclaw-gateway.service",
+			"if [ -f \"$unit\" ]; then export OPENCLAW_GATEWAY_TOKEN=$(awk -F= '/^Environment=OPENCLAW_GATEWAY_TOKEN=/{sub(/^Environment=OPENCLAW_GATEWAY_TOKEN=/, \"\"); print; exit}' \"$unit\"); fi",
+			"/home/" + user.Username + "/.local/bin/openclaw doctor --json",
+		}, "\n")
+		res, err := c.runTenantShell(ctx, user.Username, doctorCmd)
 		if err != nil {
 			report.Add(CheckResult{
 				ID:       "openclaw-" + user.Username + "-doctor",
@@ -227,7 +233,7 @@ func (c *Checker) checkLinger(ctx context.Context, report *Report, user state.Us
 
 func (c *Checker) checkTenantRuntime(ctx context.Context, report *Report, user state.User) {
 	cmd := "/home/" + user.Username + "/.local/bin/openclaw --version"
-	res, err := c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"su", "-", user.Username, "-c", cmd}, Sudo: true})
+	res, err := c.runTenantShell(ctx, user.Username, cmd)
 	if err == nil && strings.TrimSpace(res.Stdout) != "" {
 		report.Add(result("user-"+user.Username+"-openclaw", "users", user.Username, StatusOK, "tenant OpenClaw available"))
 		return
@@ -236,12 +242,30 @@ func (c *Checker) checkTenantRuntime(ctx context.Context, report *Report, user s
 }
 
 func (c *Checker) checkUserService(ctx context.Context, report *Report, user state.User, service, label string) {
-	res, err := c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"su", "-", user.Username, "-c", "systemctl --user is-active " + service}, Sudo: true})
+	res, err := c.runUserSystemctl(ctx, user, "is-active", service)
 	if err == nil && strings.TrimSpace(res.Stdout) == "active" {
 		report.Add(result("user-"+user.Username+"-"+label, "users", user.Username, StatusOK, label+" active"))
 		return
 	}
-	report.Add(result("user-"+user.Username+"-"+label, "users", user.Username, StatusFail, label+" not active"))
+	detail := strings.TrimSpace(res.Stdout + "\n" + res.Stderr)
+	if err != nil {
+		detail = strings.TrimSpace(detail + "\n" + err.Error())
+	}
+	msg := label + " not active"
+	if detail != "" {
+		msg += ": " + detail
+	}
+	report.Add(result("user-"+user.Username+"-"+label, "users", user.Username, StatusFail, msg))
+}
+
+func (c *Checker) runTenantShell(ctx context.Context, username string, script string) (shell.ExecResult, error) {
+	return c.Exec.Run(ctx, shell.ExecOpts{Cmd: []string{"-u", username, "-H", "bash", "-lc", script}, Sudo: true})
+}
+
+func (c *Checker) runUserSystemctl(ctx context.Context, user state.User, args ...string) (shell.ExecResult, error) {
+	cmd := []string{"-u", user.Username, "env", "XDG_RUNTIME_DIR=/run/user/" + strconv.Itoa(user.UID), "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/" + strconv.Itoa(user.UID) + "/bus", "systemctl", "--user"}
+	cmd = append(cmd, args...)
+	return c.Exec.Run(ctx, shell.ExecOpts{Cmd: cmd, Sudo: true})
 }
 
 func (c *Checker) checkPort(ctx context.Context, report *Report, user state.User) {
@@ -258,9 +282,9 @@ func (c *Checker) checkPort(ctx context.Context, report *Report, user state.User
 
 func (c *Checker) filesystemChecks(report *Report, users []state.User) {
 	for _, user := range users {
-		c.checkMode(report, user.Username, homePath(user.Username, ".openclaw"), 0o700, "chmod-openclaw-dir")
-		c.checkMode(report, user.Username, homePath(user.Username, ".openclaw/openclaw.json"), 0o600, "chmod-openclaw-config")
-		c.checkMode(report, user.Username, homePath(user.Username, ".openclaw-overlay"), 0o700, "chmod-overlay-dir")
+		c.checkMode(report, user, homePath(user.Username, ".openclaw"), 0o700, "chmod-openclaw-dir")
+		c.checkMode(report, user, homePath(user.Username, ".openclaw/openclaw.json"), 0o600, "chmod-openclaw-config")
+		c.checkMode(report, user, homePath(user.Username, ".openclaw-overlay"), 0o700, "chmod-overlay-dir")
 	}
 	data, err := c.FS.ReadFile(c.Opts.UmaskProfilePath)
 	if err != nil || strings.TrimSpace(string(data)) != "umask 0077" {
@@ -277,18 +301,22 @@ func (c *Checker) filesystemChecks(report *Report, users []state.User) {
 	}
 }
 
-func (c *Checker) checkMode(report *Report, username, path string, expected fs.FileMode, fixID string) {
+func (c *Checker) checkMode(report *Report, user state.User, path string, expected fs.FileMode, fixID string) {
 	info, err := c.FS.Stat(path)
 	if err != nil {
-		report.Add(result("filesystem-"+username+"-"+filepath.Base(path), "filesystem", username, StatusSkipped, path+" missing"))
+		status := StatusSkipped
+		if user.Status == state.UserStatusActive {
+			status = StatusFail
+		}
+		report.Add(result("filesystem-"+user.Username+"-"+filepath.Base(path), "filesystem", user.Username, status, path+" missing"))
 		return
 	}
 	actual := info.Mode().Perm()
 	if actual == expected {
-		report.Add(result("filesystem-"+username+"-"+filepath.Base(path), "filesystem", username, StatusOK, path+" mode "+modeString(actual)))
+		report.Add(result("filesystem-"+user.Username+"-"+filepath.Base(path), "filesystem", user.Username, StatusOK, path+" mode "+modeString(actual)))
 		return
 	}
-	r := result("filesystem-"+username+"-"+filepath.Base(path), "filesystem", username, StatusWarn, path+" mode "+modeString(actual)+", expected "+modeString(expected))
+	r := result("filesystem-"+user.Username+"-"+filepath.Base(path), "filesystem", user.Username, StatusWarn, path+" mode "+modeString(actual)+", expected "+modeString(expected))
 	r.Fixable = true
 	r.FixID = fixID
 	report.Add(r)

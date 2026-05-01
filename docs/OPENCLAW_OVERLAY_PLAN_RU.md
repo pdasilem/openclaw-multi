@@ -206,7 +206,7 @@ Recovery (если админ-аккаунт потерян/заблокиров
 | UFW                 | `ufw status`                                                                                 | если уже active с правилами — показать текущие, спросить «применить overlay-правила (`deny incoming`/`allow outgoing` + ваш порт) и сохранить остальные?». Если inactive — настроить и активировать |
 | sysctl hardening    | `sysctl kernel.yama.ptrace_scope` и т.д.                                                     | если все нужные значения уже выставлены — пропустить; иначе записать `/etc/sysctl.d/openclaw-overlay.conf` и `sysctl --system`                                                                      |
 | `/proc hidepid=2`   | `mount \| grep proc`                                                                         | если уже `hidepid=2` — пропустить; иначе править `/etc/fstab` и `mount -o remount /proc`                                                                                                            |
-| OpenClaw CLI        | `su - <user> -c "/home/<user>/.local/bin/openclaw --version"`                                | ставится только в tenant user-space через `nvm`; глобальный OpenClaw CLI не используется                                                                                                           |
+| OpenClaw CLI        | `sudo -u <user> -H bash -lc "/home/<user>/.local/bin/openclaw --version"`                    | ставится только в tenant user-space через `nvm`; глобальный OpenClaw CLI не используется                                                                                                           |
 
 Любая операция, изменяющая системное состояние, **сначала делает бэкап**
 старого файла (`/var/lib/openclaw-multi/snapshots/<ts>/`) и пишет в audit
@@ -263,7 +263,7 @@ log. Откат возможен из меню §6.10.
 - **Админ** запускает `openclaw-multi` (TUI), выбирает действие.
 - Команды → bash-обвязки в `/opt/openclaw-multi/scripts/` → стандартные
   системные команды (`useradd`, `systemctl`, `loginctl`, `ufw`, `tailscale`,
-  `cloudflared`) и `openclaw` (через `su -`).
+  `cloudflared`) и `openclaw` (через `sudo -u <user> -H bash -lc`).
 - При **bootstrap нового юзера** overlay-API сразу создаёт публичный
   ingress route `gateway-<user>.openclaw.<domain>` →
   `localhost:<user-port>`, чтобы юзер мог зайти в свой Control UI с
@@ -359,7 +359,8 @@ Plugin пересчитывает конфиг (hot-reload в OpenClaw)
   опционально шифрует (`openssl enc -aes-256-cbc -pbkdf2`) и кладёт в
   `/var/lib/openclaw-multi/backups/<user>/`.
 - Удаление юзера: `openclaw uninstall --all --yes --non-interactive`
-  (`docs/cli/uninstall.md`) под `su - <user>`, потом `userdel -r`.
+  (`docs/cli/uninstall.md`) под `sudo -u <user> -H bash -lc`, потом
+  `userdel -r`.
 - Не делаем своего велосипеда — в OpenClaw уже есть надёжные команды.
 
 ---
@@ -621,13 +622,21 @@ restart openclaw-gateway`.
 
 #### 6.4.1. Add user
 
+`Add user` является idempotent reconcile-операцией
+`EnsureActiveManagedUser(<user>)`. Повторный запуск для того же username должен
+доделывать частично созданный tenant до active/ready. Отдельного `repair user`
+нет.
+
 1. Запросить username (валидация: a-z0-9\_-, длина ≤ 32).
-2. Аллоцировать порт из пула (например, шаг 20: 18789 → 18809 → 18829).
-3. Запросить или сгенерировать первичный gateway token.
-4. `useradd -m -s /bin/bash <user>`.
+2. Если user уже есть в state.db — переиспользовать его UID/порт; если нет —
+   аллоцировать порт из пула (например, шаг 20: 18789 → 18809 → 18829).
+3. Создать Linux user, если он отсутствует; если уже существует —
+   переиспользовать.
+4. Сгенерировать gateway token для текущего reconcile.
 5. `loginctl enable-linger <user>`.
-6. Прокинуть стандартное окружение (`/etc/profile.d/openclaw.sh`).
-7. **Подготовка env vars** (overlay подставляет их перед запуском
+6. Запустить `user@<uid>.service`.
+7. Прокинуть стандартное окружение (`/etc/profile.d/openclaw.sh`).
+8. **Подготовка env vars** (overlay подставляет их перед запуском
    `openclaw onboard` чтобы wizard сразу взял правильные значения):
 
    ```bash
@@ -645,25 +654,29 @@ restart openclaw-gateway`.
    - Auth mode — `token` (default), токен уже подставлен через env.
    - Каналы и провайдеры задаются параметрами non-interactive onboarding.
 
-8. **Запустить non-interactive onboarding OpenClaw**:
+9. **Запустить non-interactive onboarding OpenClaw**:
 
    ```bash
-   su - <user> -c "/home/<user>/.local/bin/openclaw onboard --non-interactive --mode local --auth-choice skip --gateway-bind loopback --gateway-auth token --gateway-token-ref-env OPENCLAW_GATEWAY_TOKEN --gateway-port $OPENCLAW_GATEWAY_PORT --install-daemon --accept-risk"
+   sudo -u <user> -H bash -lc "/home/<user>/.local/bin/openclaw onboard --non-interactive --mode local --auth-choice skip --gateway-bind loopback --gateway-auth token --gateway-token-ref-env OPENCLAW_GATEWAY_TOKEN --gateway-port $OPENCLAW_GATEWAY_PORT --install-daemon --accept-risk"
    ```
 
    После завершения OpenClaw Multi проверяет `openclaw doctor` и user service.
 
-9. После завершения onboard — TUI **возвращает себе управление** и
+10. После завершения onboard — TUI **возвращает себе управление** и
    доделывает overlay-сторону:
    - `chmod 700 ~/.openclaw`, `chmod 600 ~/.openclaw/openclaw.json`;
    - записать unit `openclaw-overlay-watcher.service`,
      `systemctl --user enable --now`;
+   - проверить readiness: `~/.openclaw`, `~/.openclaw/openclaw.json`,
+     `~/.openclaw-overlay`, gateway unit, watcher unit, gateway active,
+     watcher active;
+   - только после readiness прописать в state.db: имя, порт, статус active,
+     gateway URL;
    - **через overlay-API создать ingress route**
      `gateway-<user>.openclaw.<domain>` → `localhost:<port>`. Это
      персональный публичный URL юзера для Control UI;
-   - прописать в state.db: имя, порт, статус active, gateway URL;
    - Audit log.
-10. **Финальный экран**: показать админу:
+11. **Финальный экран**: показать админу:
     - Публичный Control UI URL (`https://gateway-<user>.openclaw.<domain>`)
     - Gateway token (для juзера, чтобы залогиниться)
     - Все системные действия — done.
@@ -677,13 +690,12 @@ OpenClaw. Никакого Tailscale у юзера нет.
 
 1. Запросить confirmation (с typing username).
 2. Опционально предложить бэкап (по умолчанию yes) — см. §6.4.4.
-3. `su - <user> -c "openclaw uninstall --all --yes --non-interactive"`
+3. `sudo -u <user> -H bash -lc "/home/<user>/.local/bin/openclaw uninstall --all --yes --non-interactive"`
    (`docs/cli/uninstall.md`) — стандартное OpenClaw удаление сервиса +
    state + workspace.
 4. Через overlay-API удалить **все** ingress routes юзера (gateway +
    плагин-callbacks).
-5. `systemctl --user --machine=<user>@.host stop openclaw-gateway
-openclaw-overlay-watcher` (или через `su -`).
+5. `sudo -u <user> env XDG_RUNTIME_DIR=/run/user/<uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus systemctl --user stop openclaw-gateway openclaw-overlay-watcher`.
 6. `loginctl disable-linger <user>`.
 7. `userdel -r <user>` (с `-r` — удаляет `$HOME` со всем содержимым).
 8. Освободить порт в state.db.
@@ -728,7 +740,7 @@ gateway` руками не запустить — даст ошибку про p
 - **Использует встроенный** `openclaw backup create` (`docs/cli/backup.md`).
 - TUI выполняет:
   ```bash
-  su - <user> -c "openclaw backup create --output ~/.openclaw-backup-tmp --verify"
+  sudo -u <user> -H bash -lc "/home/<user>/.local/bin/openclaw backup create --output ~/.openclaw-backup-tmp --verify"
   ```
 - Архив `<timestamp>-openclaw-backup.tar.gz` уже содержит manifest.json
   и проверен `--verify`.
@@ -899,7 +911,8 @@ identity не нужна для overlay-функционала.
 
 ### 6.8. (7) Логи и мониторинг
 
-- Per-user `journalctl --user -u openclaw-gateway --since today` под `su -`.
+- Per-user `journalctl --user -u openclaw-gateway --since today` через
+  `sudo -u <user> env XDG_RUNTIME_DIR=/run/user/<uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus`.
 - `journalctl -u cloudflared`.
 - `journalctl -u openclaw-overlay-api`.
 - Live-tail с цветовой подсветкой error/warn (через bubbletea viewport).
@@ -967,7 +980,7 @@ create` перед удалением (если `~/.openclaw` помечен к 
    если юзер не запросил — кладётся в `/var/lib/openclaw-multi/backups/`
    на случай rollback'а.
 3. Для каждого юзера, помеченного к полному удалению:
-   `su - <user> -c "openclaw uninstall --all --yes --non-interactive"`
+   `sudo -u <user> -H bash -lc "/home/<user>/.local/bin/openclaw uninstall --all --yes --non-interactive"`
    (`docs/cli/uninstall.md`) → потом `userdel -r <user>` (если
    галочка «удалить Linux-юзеров»).
 4. Удаление overlay-watcher units и overlay-доп.файлов в каждом

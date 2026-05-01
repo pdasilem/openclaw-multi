@@ -30,7 +30,7 @@ The backend flow is:
 
 1. Verify the managed user exists.
 2. Ensure the master key exists.
-3. Run `su - <user> -c "openclaw backup create --output ~/.openclaw-backup-tmp --verify"`.
+3. Run `sudo -u <user> -H bash -lc "/home/<user>/.local/bin/openclaw backup create --output ~/.openclaw-backup-tmp --verify"`.
 4. Parse the produced archive path from stdout.
 5. Encrypt with `openssl enc -aes-256-cbc -pbkdf2 -salt`.
 6. Compute SHA-256 and size of the encrypted archive.

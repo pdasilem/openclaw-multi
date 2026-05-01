@@ -73,6 +73,25 @@ func TestNetworkScreenRefreshAndProbe(t *testing.T) {
 	}
 }
 
+func TestNetworkProbeViewWrapsLongErrors(t *testing.T) {
+	m := newNetwork(&fakeNetworkService{})
+	m.report = netops.Report{
+		Tailscale:  netops.TailscaleInfo{Status: netops.StatusOK, Message: "ok"},
+		Cloudflare: netops.CloudflareInfo{Status: netops.StatusOK, Message: "ok"},
+		UFW:        netops.UFWInfo{Status: netops.StatusOK, Message: "ok"},
+		Probes: []netops.ProbeResult{{
+			Hostname: "gateway-pdasilem.oc.defiharbor.top",
+			Status:   netops.StatusFail,
+			Message:  "curl: (35) OpenSSL/3.0.13: error:0A000410:SSL routines::sslv3 alert handshake failure",
+		}},
+	}
+
+	view := m.View()
+	if !contains(view, "routines::sslv3 alert handshake failure") || !contains(view, "\n                                             routines::sslv3") {
+		t.Fatalf("expected wrapped full probe error, got %q", view)
+	}
+}
+
 func TestNetworkScreenDNSReviewApply(t *testing.T) {
 	svc := &fakeNetworkService{dnsPlan: netops.DNSPlan{
 		Action: netops.DNSActionCreate,

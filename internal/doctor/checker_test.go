@@ -88,6 +88,23 @@ func TestRunReportsHealthAndFixablePermissions(t *testing.T) {
 	}
 }
 
+func TestFilesystemChecksFailForActiveMissingRuntime(t *testing.T) {
+	checker := NewChecker(openDoctorTestStore(t), &shell.MockExecutor{}, shell.NewMemFS(), nil, Options{})
+	report := Report{}
+
+	checker.filesystemChecks(&report, []state.User{
+		{Username: "alice", Status: state.UserStatusActive},
+		{Username: "bob", Status: state.UserStatusPaused},
+	})
+
+	if !hasStatus(report, "filesystem", "alice", StatusFail) {
+		t.Fatalf("expected active missing runtime files to fail: %+v", report.Results)
+	}
+	if !hasStatus(report, "filesystem", "bob", StatusSkipped) {
+		t.Fatalf("expected paused missing runtime files to stay skipped: %+v", report.Results)
+	}
+}
+
 func TestRunOpenClawDoctorParsesJSONAndSkipsPaused(t *testing.T) {
 	ctx := context.Background()
 	store := openDoctorTestStore(t)

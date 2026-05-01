@@ -203,8 +203,10 @@ Backend add/bootstrap operation:
 4. Allocate gateway port.
 5. Generate gateway token automatically.
 6. Run, via `Executor`, the intended commands:
-   `useradd -m -s /bin/bash <user>`, `loginctl enable-linger <user>`, and
-   `su - <user> -c "/home/<user>/.local/bin/openclaw onboard --non-interactive --mode local --auth-choice skip --gateway-bind loopback --gateway-auth token --gateway-token-ref-env OPENCLAW_GATEWAY_TOKEN --gateway-port $OPENCLAW_GATEWAY_PORT --install-daemon --accept-risk"`.
+   `sudo useradd -m -s /bin/bash <user>`, `sudo loginctl enable-linger <user>`,
+   tenant shell commands through `sudo -u <user> -H bash -lc '<command>'`,
+   and user services through
+   `sudo -u <user> env XDG_RUNTIME_DIR=/run/user/<uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus systemctl --user ...`.
 7. Pass env vars through `ExecOpts.Env`:
    `OPENCLAW_GATEWAY_PORT`, `OPENCLAW_GATEWAY_TOKEN`,
    `OPENCLAW_GATEWAY_BIND=loopback`.
@@ -224,7 +226,8 @@ Backend remove operation:
    first before exposing hard delete.
 3. Stop user services.
 4. Delete/disable routes through `RoutePublisher`.
-5. Run `openclaw uninstall --all --yes --non-interactive` through `su -`.
+5. Run `openclaw uninstall --all --yes --non-interactive` through
+   `sudo -u <user> -H bash -lc '<command>'`.
 6. `loginctl disable-linger <user>`.
 7. `userdel -r <user>`.
 8. Delete user and routes from state. The gateway port becomes reusable
@@ -387,8 +390,9 @@ cascade delete.
 - [ ] Allocates and stores a unique port.
 - [ ] Generates a gateway token automatically.
 - [ ] Records expected command sequence using `MockExecutor`:
-      `useradd`, `loginctl enable-linger`, `su - <user> -c openclaw onboard`,
-      chmod/setup, systemd user daemon-reload, enable/start watcher.
+      `sudo useradd`, `sudo loginctl enable-linger`,
+      `sudo -u <user> -H bash -lc openclaw onboard`, chmod/setup,
+      systemd user daemon-reload, enable/start watcher.
 - [ ] Uses `ExecOpts.Env` for OpenClaw gateway env vars.
 - [ ] Creates a gateway route in state through `RoutePublisher`.
 - [ ] Emits `ActionBootstrapUser`.

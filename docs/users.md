@@ -17,27 +17,42 @@ Menu item **3. Управление пользователями** manages OpenC
 
 ## Add User
 
-The TUI asks only for a username. Phase 2 generates the gateway token
-automatically; manual token entry is intentionally out of scope.
+The TUI asks only for a username. `Add user` is idempotent: it ensures the
+requested Linux tenant exists and is ready as an active managed OpenClaw user.
+Run it again for the same username when a previous add was interrupted or when
+health shows partial tenant runtime. There is no separate repair-user action.
+
+The gateway token is generated automatically; manual token entry is
+intentionally out of scope.
 
 Backend flow:
 
 1. Validate username.
 2. Validate `domain` and `subdomain`.
-3. Allocate the lowest free gateway port from `port_range_start + n*port_range_step`.
-4. Generate gateway token.
-5. Run intended system commands through `shell.Executor`.
-6. Write the per-user watcher unit through `shell.FS`.
-7. Record the user and gateway route in state.
-8. Emit `bootstrap_user` audit event.
+3. Reuse existing state port when present; otherwise allocate the lowest free
+   gateway port from `port_range_start + n*port_range_step`.
+4. Create the Linux user if missing; reuse it if already present.
+5. Enable linger and start `user@<uid>.service`.
+6. Install/repair tenant NVM, Node 24, OpenClaw CLI, wrappers, onboarding, and
+   user units.
+7. Start gateway and watcher user services.
+8. Verify readiness:
+   `~/.openclaw`, `~/.openclaw/openclaw.json`, `~/.openclaw-overlay`, gateway
+   unit, watcher unit, gateway active, watcher active.
+9. Record the user as `active` only after readiness passes.
+10. Record/enable the gateway route in state.
+11. Emit `bootstrap_user` audit event.
+
+If readiness fails, Add User returns an error and does not create a new active
+state row.
 
 ## Deactivate / Activate
 
 Deactivate stops user services, disables linger, disables state routes, sets
 `status=paused`, and emits `disable_user`.
 
-Activate enables the gateway route, enables linger, starts user services, sets
-`status=active`, and emits `enable_user`.
+Activate uses the same reconcile/readiness path as Add User, then emits
+`enable_user`.
 
 ## Remove
 
