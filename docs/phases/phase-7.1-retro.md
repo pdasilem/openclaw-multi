@@ -14,7 +14,8 @@ Implemented:
 
 - Normal `openclaw-multi` launch rejects UID 0 with a clear error.
 - First-run admin identity is the current non-root user, not `$SUDO_USER`.
-- `system-prepare` creates required system directories:
+- `system-prepare` creates required system directories and repairs ownership
+  of existing state/log files left from the pre-7.1 root-run flow:
   `/var/lib/openclaw-multi`, `/var/log/openclaw-multi`,
   `/etc/openclaw-multi`, and `/etc/cloudflared`.
 - `system-prepare` prints each ensured directory operation and final completion

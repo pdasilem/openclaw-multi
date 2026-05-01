@@ -157,7 +157,7 @@ func setupAccountTunnel(
 		return err
 	}
 	cfg.CloudflaredCredentialsFile = credFile
-	content, err := renderer("templates/cloudflared-config.tmpl", map[string]string{
+	content, err := renderer("cloudflared-config.tmpl", map[string]string{
 		"TUNNEL_ID":               tunnelID,
 		"TUNNEL_CREDENTIALS_FILE": credFile,
 	})

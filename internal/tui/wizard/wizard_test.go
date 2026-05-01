@@ -71,6 +71,24 @@ func TestWizardShowsErrorOnFailure(t *testing.T) {
 	}
 }
 
+func TestWizardWrapsLongErrors(t *testing.T) {
+	steps := []Step{
+		&mockStep{name: "fail-step", err: errors.New("render cloudflared config: read template /opt/openclaw-multi/templates/cloudflared-config.tmpl failed")},
+	}
+	m := New(context.Background(), steps)
+	m, _ = update(m, tea.WindowSizeMsg{Width: 48, Height: 20})
+	cmd := m.Init()
+	m, _ = update(m, cmd())
+
+	content := m.View().Content
+	if !contains(content, "Error: render cloudflared config: read") {
+		t.Fatalf("expected wrapped error prefix in view: %q", content)
+	}
+	if !contains(content, "template") {
+		t.Fatalf("expected wrapped error continuation in view: %q", content)
+	}
+}
+
 func TestWizardRetry(t *testing.T) {
 	callCount := 0
 	step := &callCountStep{name: "retry-step", maxFail: 1, count: &callCount}
@@ -210,4 +228,13 @@ func keyText(text string) tea.KeyPressMsg {
 		code = r[0]
 	}
 	return tea.KeyPressMsg(tea.Key{Text: text, Code: code})
+}
+
+func contains(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return sub == ""
 }

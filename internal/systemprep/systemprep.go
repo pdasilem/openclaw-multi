@@ -30,6 +30,12 @@ func Run(ctx context.Context, exec shell.Executor) ([]string, error) {
 			return actions, fmt.Errorf("prepare %s: %w", dir, err)
 		}
 		actions = append(actions, fmt.Sprintf("ensured %s owner=%s group=%s mode=0700", dir, adminUser, u.Gid))
+		if _, err := exec.Run(ctx, shell.ExecOpts{
+			Cmd: []string{"chown", "-R", adminUser + ":" + u.Gid, dir},
+		}); err != nil {
+			return actions, fmt.Errorf("chown %s: %w", dir, err)
+		}
+		actions = append(actions, fmt.Sprintf("repaired existing ownership under %s owner=%s group=%s", dir, adminUser, u.Gid))
 	}
 	for _, dir := range []string{"/etc/openclaw-multi", "/etc/cloudflared"} {
 		if _, err := exec.Run(ctx, shell.ExecOpts{

@@ -179,9 +179,42 @@ func (m Model) View() tea.View {
 
 	if m.waitKey && m.errText != "" {
 		b.WriteString("\n")
-		b.WriteString(failStyle.Render("  Error: ") + m.errText + "\n\n")
+		for _, line := range wrapText("Error: "+m.errText, m.errorWidth()) {
+			b.WriteString(failStyle.Render("  " + line))
+			b.WriteByte('\n')
+		}
+		b.WriteByte('\n')
 		b.WriteString(warnStyle.Render("  [R]etry  [S]kip  [A]bort") + "\n")
 	}
 
 	return tea.NewView(b.String())
+}
+
+func (m Model) errorWidth() int {
+	if m.width > 8 {
+		return m.width - 4
+	}
+	return 100
+}
+
+func wrapText(text string, width int) []string {
+	if width <= 0 || len(text) <= width {
+		return []string{text}
+	}
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return []string{text}
+	}
+	var lines []string
+	current := words[0]
+	for _, word := range words[1:] {
+		if len(current)+1+len(word) <= width {
+			current += " " + word
+			continue
+		}
+		lines = append(lines, current)
+		current = word
+	}
+	lines = append(lines, current)
+	return lines
 }

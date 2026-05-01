@@ -292,6 +292,7 @@ test -d /home/ubuntu/openclaw-multi
 test -f /etc/cloudflared/<tunnel_id>.json
 test -w /var/lib/openclaw-multi
 test -w /var/log/openclaw-multi
+test ! -e /var/lib/openclaw-multi/state.db || test -w /var/lib/openclaw-multi/state.db
 ```
 
 Следующий документ: [`docs/vps-runbook.md`](vps-runbook.md).
