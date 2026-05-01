@@ -50,7 +50,7 @@ or already had OpenClaw/cloudflared/Tailscale state.
 - `make build` output
 - binary stderr/stdout
 
-### UC-0002: Admin Terminal Tab Is Present
+### UC-0002: Embedded Terminal Is Present
 
 - Phase: 0
 - Scenario type: `owner-vps`
@@ -63,27 +63,30 @@ or already had OpenClaw/cloudflared/Tailscale state.
 
 **Steps.**
 
-1. Open each admin screen after login: main menu, fresh install, user
+1. Confirm the terminal panel is visible as collapsed at the bottom of the
+   welcome/login or first-run screen.
+2. Open each admin screen after login: main menu, fresh install, user
    management, backup/restore, health, network/firewall, overlay publication,
    watcher, logs, and settings.
-2. Confirm the bottom area contains a terminal tab on each screen.
-3. Open the terminal tab and run a harmless command such as `whoami`.
-4. Return from the terminal tab to the previous admin screen.
-5. Open the welcome/login screen and confirm it does not expose the terminal
-   tab.
+3. Confirm the bottom area contains the collapsed terminal panel on each
+   screen.
+4. Expand the terminal panel and run a harmless command such as `whoami`.
+5. Use terminal focus to type the command, then unfocus and confirm screen
+   navigation still works.
 
 **Expected result.**
 
-- Every admin screen after login has a bottom terminal tab.
-- Welcome/login has no terminal tab.
-- The terminal tab runs commands without leaving the admin panel.
-- Returning from the terminal tab preserves the current admin screen context.
+- Every screen, including welcome/login and first-run, has the bottom terminal
+  panel.
+- Terminal is collapsed by default.
+- The terminal runs commands without leaving the admin panel.
+- Returning from terminal focus preserves the current admin screen context.
 
 **Capture on failure.**
 
 - TUI screenshot/transcript.
-- Command entered in the terminal tab.
-- Terminal tab output.
+- Command entered in the terminal.
+- Terminal output.
 
 ## Phase 1: Fresh Install
 
@@ -97,18 +100,20 @@ or already had OpenClaw/cloudflared/Tailscale state.
 
 - Clean Ubuntu VPS or disposable test VPS.
 - SSH access as admin user `ubuntu` through Tailscale.
-- Root shell is available through passwordless `sudo -i` for manual system
-  checks.
-- `openclaw-multi` is started as `ubuntu` through `sudo openclaw-multi`, not
-  from a `sudo -i` root shell.
+- Root shell is available through `sudo -i` for manual system checks when
+  needed.
+- `openclaw-multi` is started as `ubuntu` without `sudo`.
+- Privileged actions inside TUI use explicit `sudo` commands and, when needed,
+  PTY password entry in the embedded terminal.
+- `sudo openclaw-multi system-prepare` has completed before first normal TUI
+  launch.
 - `tailscaled` is active and logged in.
 - UFW keeps public inbound closed and allows admin SSH through Tailscale.
 - No production OpenClaw data on the host.
 
 **Steps.**
 
-1. Start `openclaw-multi` with `sudo openclaw-multi` from the `ubuntu` SSH
-   session.
+1. Start `openclaw-multi` from the `ubuntu` SSH session.
 2. Complete the first-run admin setup.
 3. Run menu item `1. Fresh install`.
 4. Choose the account/named Cloudflare Tunnel path when credentials are
@@ -121,6 +126,11 @@ or already had OpenClaw/cloudflared/Tailscale state.
    `/etc/openclaw-multi/config.yml`, `/etc/systemd/system/cloudflared.service`,
    `/etc/systemd/system/openclaw-overlay-api.service`, and overlay templates.
 8. Run `systemctl is-active tailscaled cloudflared openclaw-overlay-api`.
+9. Confirm collapsed terminal history contains the commands executed by the
+   wizard.
+10. Run `sudo -k`, then start a harmless privileged action or command from the
+   embedded terminal; enter sudo password in terminal focus and confirm it
+   completes.
 
 **Expected result.**
 
@@ -130,6 +140,7 @@ or already had OpenClaw/cloudflared/Tailscale state.
 - Overlay config defaults match the plan unless intentionally changed:
   `port_range_start: 18789`, `port_range_step: 20`,
   `node_version_min: 24`,
+  `terminal_history_lines: 1000`,
   `openclaw_update_source: pdasilem/openclaw:latest`.
 - `cloudflared` and `openclaw-overlay-api` service states match the phase:
    Phase 1 may install a stub service; Phase 6 must run the real daemon.

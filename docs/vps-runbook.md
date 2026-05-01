@@ -48,9 +48,11 @@ sudo -i
 
 - checkout и сборка выполняются как `ubuntu`;
 - установка бинарников и системные операции выполняются как `root`;
-- `openclaw-multi` запускать как `ubuntu` через `sudo openclaw-multi`;
-- не запускать `openclaw-multi` из `sudo -i`: тогда процесс видит себя как
-  root-admin и показывает предупреждение про root antipattern;
+- `openclaw-multi` запускать как `ubuntu` без `sudo`;
+- root-права внутри TUI используются только точечно через явные `sudo`
+  команды;
+- если sudo попросит пароль, вводить его во встроенном terminal panel;
+- не запускать interactive TUI через `sudo openclaw-multi` или из `sudo -i`;
 - внутрь tenant переключаться только после создания user:
   `su - <username>`;
 - в примерах `<username>` заменить на реально созданного tenant, например
@@ -123,14 +125,15 @@ ls -l /etc/cloudflared/<tunnel_id>.json
 
 ## Установка с нуля
 
-Запустить OpenClaw Multi как admin `ubuntu` через `sudo`, не из root shell.
-Так сохраняется `SUDO_USER=ubuntu`, и TUI фиксирует реального admin user.
-Fresh install и add-user внутри TUI получают root-права от `sudo` для системных
-операций: запись `/etc`, systemd units, `useradd`, `chown`, cloudflared config.
+Запустить OpenClaw Multi как admin `ubuntu` без `sudo`.
+Fresh install и add-user внутри TUI получают root-права только для конкретных
+системных операций через явные `sudo` команды: запись `/etc`, systemd units,
+`useradd`, `chown`, cloudflared config. Если sudo запросит пароль, prompt
+появится во встроенном terminal panel.
 
 ```bash
 ssh ubuntu@<vps-host>
-sudo openclaw-multi
+openclaw-multi
 ```
 
 Выполнить:

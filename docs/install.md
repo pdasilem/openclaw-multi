@@ -119,15 +119,13 @@ cloudflared --version
 Cloudflare apt repository для Ubuntu 24.04 `noble`:
 
 ```bash
-sudo -i
-install -d -m 0755 /usr/share/keyrings
-curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /usr/share/keyrings/cloudflare-main.gpg
-chmod 0644 /usr/share/keyrings/cloudflare-main.gpg
-printf '%s\n' 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared noble main' > /etc/apt/sources.list.d/cloudflared.list
-apt-get update
-apt-get install -y cloudflared
+curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /tmp/cloudflare-main.gpg
+sudo install -d -m 0755 /usr/share/keyrings
+sudo install -m 0644 /tmp/cloudflare-main.gpg /usr/share/keyrings/cloudflare-main.gpg
+printf '%s\n' 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared noble main' | sudo tee /etc/apt/sources.list.d/cloudflared.list >/dev/null
+sudo apt-get update
+sudo apt-get install -y cloudflared
 cloudflared --version
-exit
 ```
 
 Официальная страница установки:
@@ -171,17 +169,16 @@ bin/openclaw-overlay-watcher
 
 ## Установка бинарников
 
-Установить бинарники в system-space из root shell:
+Установить бинарники в system-space из обычной SSH-сессии `ubuntu`:
 
 ```bash
-sudo -i
 cd /home/ubuntu/openclaw-multi
-make install
-exit
+sudo make install
+sudo openclaw-multi system-prepare
 ```
 
-Проверить уже после `exit`, под пользователем `ubuntu`. Бинарники лежат в
-`/usr/local/bin`, поэтому должны находиться из обычной SSH-сессии:
+Проверить под пользователем `ubuntu`. Бинарники лежат в `/usr/local/bin`,
+поэтому должны находиться из обычной SSH-сессии:
 
 ```bash
 command -v openclaw-multi
@@ -262,12 +259,10 @@ OpenClaw Multi используют стабильный system path из `/etc/
 Это обязательный шаг после `cloudflared tunnel create`:
 
 ```bash
-sudo -i
-install -d -m 0755 /etc/cloudflared
-install -m 0600 /home/ubuntu/.cloudflared/<tunnel_id>.json /etc/cloudflared/<tunnel_id>.json
+sudo install -d -m 0755 /etc/cloudflared
+sudo install -m 0600 /home/ubuntu/.cloudflared/<tunnel_id>.json /etc/cloudflared/<tunnel_id>.json
 ls -l /home/ubuntu/.cloudflared/<tunnel_id>.json
-ls -l /etc/cloudflared/<tunnel_id>.json
-exit
+sudo ls -l /etc/cloudflared/<tunnel_id>.json
 ```
 
 Данные для `openclaw-multi`:
@@ -281,6 +276,7 @@ tunnel_mode: account
 cloudflare_zone_id: <zone-id>
 cloudflare_api_token: <token-with-dns-edit>
 cloudflared_credentials_file: /etc/cloudflared/<tunnel_id>.json
+terminal_history_lines: 1000
 ```
 
 ## Готовность к запуску
@@ -294,6 +290,8 @@ command -v openclaw-overlay-watcher
 command -v cloudflared
 test -d /home/ubuntu/openclaw-multi
 test -f /etc/cloudflared/<tunnel_id>.json
+test -w /var/lib/openclaw-multi
+test -w /var/log/openclaw-multi
 ```
 
 Следующий документ: [`docs/vps-runbook.md`](vps-runbook.md).

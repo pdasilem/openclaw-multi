@@ -81,8 +81,9 @@ func rootWarning(uid int, sudoUser string) string {
 	}
 	return `WARNING: You are running openclaw-multi as root.
 Running as root is an antipattern and is not recommended.
-Please create a regular user, add them to the sudo group, and run:
-  sudo openclaw-multi`
+Run openclaw-multi as the configured admin user without sudo.
+For first-time host preparation only, run:
+  sudo openclaw-multi system-prepare`
 }
 
 // AdminStore is the minimal interface needed from *state.Store.

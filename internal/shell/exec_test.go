@@ -159,6 +159,55 @@ func TestRealExecutorEmitAuditWithLogger(t *testing.T) {
 	}
 }
 
+func TestRealExecutorEmitsShellEvents(t *testing.T) {
+	events := make(chan Event, 8)
+	r := &RealExecutor{Events: ChannelSink(events)}
+	_, err := r.Run(context.Background(), ExecOpts{Cmd: []string{"echo", "x"}})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	kinds := map[EventKind]bool{}
+	for range 3 {
+		e := <-events
+		kinds[e.Kind] = true
+	}
+	for _, kind := range []EventKind{EventStart, EventStdout, EventDone} {
+		if !kinds[kind] {
+			t.Fatalf("missing event kind %s in %v", kind, kinds)
+		}
+	}
+}
+
+func TestRealExecutorRedactsShellEventCommands(t *testing.T) {
+	events := make(chan Event, 8)
+	r := &RealExecutor{Events: ChannelSink(events), Redact: []string{"secret-token"}}
+	_, err := r.Run(context.Background(), ExecOpts{Cmd: []string{"echo", "secret-token"}})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	e := <-events
+	if got := DisplayCommand(e.Cmd); got != "echo [redacted]" {
+		t.Fatalf("redacted command = %q", got)
+	}
+}
+
+func TestPrivilegedFSUsesSudoForSystemWrite(t *testing.T) {
+	exec := &MockExecutor{Responses: []ExecResult{OKResponse("")}}
+	fs := PrivilegedFS{Base: RealFS{}, Exec: exec}
+	if err := fs.WriteFile("/etc/openclaw-multi/config.yml", []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if len(exec.Calls) != 1 {
+		t.Fatalf("expected 1 sudo call, got %d", len(exec.Calls))
+	}
+	if !exec.Calls[0].Sudo {
+		t.Fatal("expected Sudo=true")
+	}
+	if got := exec.Calls[0].Cmd[0]; got != "install" {
+		t.Fatalf("expected install command, got %q", got)
+	}
+}
+
 type countLogger struct{ n *int }
 
 func (c *countLogger) Emit(_ audit.Event) error {

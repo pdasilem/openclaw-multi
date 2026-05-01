@@ -170,7 +170,8 @@ func setupAccountTunnel(
 
 	// Validate config.
 	if _, err := exec.Run(ctx, shell.ExecOpts{
-		Cmd: []string{"cloudflared", "tunnel", "ingress", "validate", cfConfigPath},
+		Cmd:  []string{"cloudflared", "tunnel", "ingress", "validate", cfConfigPath},
+		Sudo: true,
 	}); err != nil {
 		return fmt.Errorf("cloudflared ingress validate: %w", err)
 	}

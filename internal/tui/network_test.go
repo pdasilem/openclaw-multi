@@ -118,7 +118,7 @@ func TestNetworkScreenUFWReviewApply(t *testing.T) {
 }
 
 func TestModelMenuActionRoutesToNetwork(t *testing.T) {
-	m := newModel(nil, nil, "host", "")
+	m := testModel("host")
 	m.networkService = &fakeNetworkService{}
 	updated, _ := m.Update(MenuActionMsg{ItemID: 5})
 	um := updated.(Model)

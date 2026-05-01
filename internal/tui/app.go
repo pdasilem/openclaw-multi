@@ -52,28 +52,35 @@ type Model struct {
 	users       userManagementModel
 	doctor      doctorModel
 	network     networkModel
+	terminal    terminalModel
 
 	store          *state.Store
 	logger         *audit.Logger
+	exec           shell.Executor
+	fs             shell.FS
+	cfg            *config.OverlayConfig
 	userService    userService
 	backupService  backupService
 	doctorService  doctorService
 	networkService networkService
 }
 
-func newModel(store *state.Store, logger *audit.Logger, hostname, rootWarn string) Model {
+func newModel(store *state.Store, logger *audit.Logger, hostname string, cfg *config.OverlayConfig, exec shell.Executor, fs shell.FS, terminal terminalModel) Model {
 	return Model{
 		screen:   screenMainMenu,
 		menu:     newMainMenu(),
 		store:    store,
 		logger:   logger,
 		hostname: hostname,
-		rootWarn: rootWarn,
+		exec:     exec,
+		fs:       fs,
+		cfg:      cfg,
+		terminal: terminal,
 	}
 }
 
 // Init implements tea.Model.
-func (m Model) Init() tea.Cmd { return nil }
+func (m Model) Init() tea.Cmd { return m.terminal.Init() }
 
 // Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -83,6 +90,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case tea.KeyMsg:
+		if updated, cmd, handled := m.terminal.Update(msg); handled {
+			m.terminal = updated
+			return m, cmd
+		}
 		switch strings.ToLower(msg.String()) {
 		case "ctrl+c":
 			return m, tea.Quit
@@ -95,7 +106,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case MenuActionMsg:
 		if msg.ItemID == 1 {
 			// Menu item 1 — launch fresh-install wizard.
-			wiz := launchFreshInstall(context.Background(), m.store, m.logger)
+			wiz := launchFreshInstall(context.Background(), m.store, m.logger, m.exec, m.fs, m.cfg)
 			m.wizard = wiz
 			m.screen = screenWizard
 			return m, wiz.Init()
@@ -131,6 +142,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case firstRunDoneMsg:
 		m.screen = screenMainMenu
 		return m, nil
+	case terminalEventMsg:
+		updated, cmd, _ := m.terminal.Update(msg)
+		m.terminal = updated
+		return m, cmd
 	}
 
 	switch m.screen {
@@ -212,16 +227,15 @@ func (m Model) View() tea.View {
 
 	b.WriteByte('\n')
 	b.WriteString(StatusStyle.Render("  ↑/↓ navigate   Enter select   q quit"))
+	b.WriteByte('\n')
+	b.WriteString(m.terminal.View(m.width))
 	v := tea.NewView(b.String())
 	v.AltScreen = true
 	return v
 }
 
 // launchFreshInstall creates the fresh-install wizard model.
-func launchFreshInstall(ctx context.Context, store *state.Store, logger *audit.Logger) tea.Model {
-	exec := &shell.RealExecutor{Logger: logger}
-	fs := shell.RealFS{}
-	cfg, _ := config.Load("/etc/openclaw-multi/config.yml")
+func launchFreshInstall(ctx context.Context, store *state.Store, logger *audit.Logger, exec shell.Executor, fs shell.FS, cfg *config.OverlayConfig) tea.Model {
 	d := wizard.Deps{
 		Exec:        exec,
 		FS:          fs,
@@ -239,6 +253,13 @@ func launchFreshInstall(ctx context.Context, store *state.Store, logger *audit.L
 // Run is the main entrypoint for the TUI binary.
 func Run() error {
 	ctx := context.Background()
+	if admin.IsRoot() {
+		return fmt.Errorf("openclaw-multi must run as the configured admin user without sudo; run sudo openclaw-multi system-prepare once for system preparation")
+	}
+	current, err := admin.ResolveCurrent()
+	if err != nil {
+		return fmt.Errorf("resolve current user: %w", err)
+	}
 
 	stateDir := os.Getenv("OPENCLAW_STATE_DIR")
 	statePath := ""
@@ -259,13 +280,18 @@ func Run() error {
 	defer func() { _ = logger.Close() }()
 
 	hostname, _ := os.Hostname()
-	rootWarn := admin.WarnIfRoot()
 	cfg, cfgErr := config.Load("/etc/openclaw-multi/config.yml")
 	if cfgErr != nil && !errors.Is(cfgErr, config.ErrNotFound) {
 		return fmt.Errorf("load config: %w", cfgErr)
 	}
-	exec := &shell.RealExecutor{Logger: logger}
-	fs := shell.RealFS{}
+	terminal := newTerminal(cfg.TerminalHistoryLines)
+	exec := &shell.RealExecutor{
+		Logger: logger,
+		Events: terminal.Sink(),
+		Actor:  current.Username,
+		Redact: terminalSecrets(cfg),
+	}
+	fs := shell.PrivilegedFS{Base: shell.RealFS{}, Exec: exec}
 	socketPath := os.Getenv("OPENCLAW_OVERLAY_SOCKET")
 	if socketPath == "" {
 		socketPath = api.DefaultSocketPath
@@ -282,12 +308,8 @@ func Run() error {
 	var m Model
 	switch {
 	case errors.Is(err, state.ErrNoAdmin):
-		candidate, cerr := admin.ResolveCandidate()
-		if cerr != nil {
-			candidate = &admin.User{Username: "unknown"}
-		}
-		fr := newFirstRun(store, logger, candidate)
-		m = newModel(store, logger, hostname, rootWarn)
+		fr := newFirstRun(store, logger, current)
+		m = newModel(store, logger, hostname, cfg, exec, fs, terminal)
 		m.userService = userManager
 		m.backupService = backupManager
 		m.doctorService = doctorChecker
@@ -298,10 +320,6 @@ func Run() error {
 		return fmt.Errorf("read admin: %w", err)
 	default:
 		_ = existing
-		current, err := admin.ResolveCurrent()
-		if err != nil {
-			return fmt.Errorf("resolve current user: %w", err)
-		}
 		if verr := admin.VerifyAdmin(ctx, store, current); verr != nil {
 			_ = logger.Emit(audit.Event{
 				Actor:        current.Username,
@@ -318,7 +336,7 @@ func Run() error {
 			Target: "system",
 			Result: audit.ResultOk,
 		})
-		m = newModel(store, logger, hostname, rootWarn)
+		m = newModel(store, logger, hostname, cfg, exec, fs, terminal)
 		m.userService = userManager
 		m.backupService = backupManager
 		m.doctorService = doctorChecker
@@ -328,4 +346,15 @@ func Run() error {
 	p := tea.NewProgram(m)
 	_, err = p.Run()
 	return err
+}
+
+func terminalSecrets(cfg *config.OverlayConfig) []string {
+	if cfg == nil {
+		return nil
+	}
+	return []string{
+		cfg.CloudflareAPIToken,
+		cfg.Notifications.TelegramToken,
+		cfg.Notifications.TelegramChatID,
+	}
 }

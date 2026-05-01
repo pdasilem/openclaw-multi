@@ -4,18 +4,21 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/pdasilem/openclaw-multi/internal/config"
+	"github.com/pdasilem/openclaw-multi/internal/shell"
 )
 
-func TestModelInitReturnsNilCmd(t *testing.T) {
-	m := newModel(nil, nil, "testhost", "")
+func TestModelInitStartsTerminalWait(t *testing.T) {
+	m := testModel("testhost")
 	cmd := m.Init()
-	if cmd != nil {
-		t.Error("expected nil Cmd from Init")
+	if cmd == nil {
+		t.Error("expected terminal wait Cmd from Init")
 	}
 }
 
 func TestModelUpdateQuit(t *testing.T) {
-	m := newModel(nil, nil, "testhost", "")
+	m := testModel("testhost")
 	_, cmd := m.Update(keyPress(tea.Key{Code: 'c', Mod: tea.ModCtrl}))
 	if cmd == nil {
 		t.Fatal("expected quit cmd")
@@ -23,7 +26,7 @@ func TestModelUpdateQuit(t *testing.T) {
 }
 
 func TestModelUpdateQKeyOnMainMenu(t *testing.T) {
-	m := newModel(nil, nil, "testhost", "")
+	m := testModel("testhost")
 	m.screen = screenMainMenu
 	_, cmd := m.Update(keyText("q"))
 	if cmd == nil {
@@ -32,7 +35,7 @@ func TestModelUpdateQKeyOnMainMenu(t *testing.T) {
 }
 
 func TestModelUpdateUpperQKeyOnMainMenu(t *testing.T) {
-	m := newModel(nil, nil, "testhost", "")
+	m := testModel("testhost")
 	m.screen = screenMainMenu
 	_, cmd := m.Update(keyText("Q"))
 	if cmd == nil {
@@ -41,7 +44,7 @@ func TestModelUpdateUpperQKeyOnMainMenu(t *testing.T) {
 }
 
 func TestModelUpdateWindowSize(t *testing.T) {
-	m := newModel(nil, nil, "testhost", "")
+	m := testModel("testhost")
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	um := updated.(Model)
 	if um.width != 120 || um.height != 40 {
@@ -50,7 +53,7 @@ func TestModelUpdateWindowSize(t *testing.T) {
 }
 
 func TestModelMenuActionRoutesToPlaceholder(t *testing.T) {
-	m := newModel(nil, nil, "testhost", "")
+	m := testModel("testhost")
 	m.screen = screenMainMenu
 	updated, _ := m.Update(MenuActionMsg{ItemID: 2})
 	um := updated.(Model)
@@ -60,7 +63,7 @@ func TestModelMenuActionRoutesToPlaceholder(t *testing.T) {
 }
 
 func TestModelMenuActionRoutesToUsers(t *testing.T) {
-	m := newModel(nil, nil, "testhost", "")
+	m := testModel("testhost")
 	m.userService = &fakeUserService{}
 	m.screen = screenMainMenu
 	updated, cmd := m.Update(MenuActionMsg{ItemID: 3})
@@ -74,7 +77,7 @@ func TestModelMenuActionRoutesToUsers(t *testing.T) {
 }
 
 func TestModelMenuActionRoutesToDoctor(t *testing.T) {
-	m := newModel(nil, nil, "testhost", "")
+	m := testModel("testhost")
 	m.doctorService = &fakeDoctorService{}
 	m.screen = screenMainMenu
 	updated, _ := m.Update(MenuActionMsg{ItemID: 4})
@@ -85,7 +88,7 @@ func TestModelMenuActionRoutesToDoctor(t *testing.T) {
 }
 
 func TestModelBackReturnsToMainMenu(t *testing.T) {
-	m := newModel(nil, nil, "testhost", "")
+	m := testModel("testhost")
 	m.screen = screenPlaceholder
 	updated, _ := m.Update(backMsg{})
 	um := updated.(Model)
@@ -95,7 +98,7 @@ func TestModelBackReturnsToMainMenu(t *testing.T) {
 }
 
 func TestModelViewRendersHostname(t *testing.T) {
-	m := newModel(nil, nil, "myhostname", "")
+	m := testModel("myhostname")
 	view := m.View()
 	if view.Content == "" {
 		t.Error("expected non-empty view")
@@ -103,7 +106,7 @@ func TestModelViewRendersHostname(t *testing.T) {
 }
 
 func TestStatusBarRendersHostname(t *testing.T) {
-	m := newModel(nil, nil, "vps-fra1", "")
+	m := testModel("vps-fra1")
 	view := m.View()
 	found := false
 	for _, part := range []string{"vps-fra1"} {
@@ -114,6 +117,20 @@ func TestStatusBarRendersHostname(t *testing.T) {
 	if !found {
 		t.Error("hostname not found in view")
 	}
+}
+
+func TestModelViewRendersCollapsedTerminal(t *testing.T) {
+	m := testModel("vps-fra1")
+	view := m.View()
+	if !contains(view.Content, "Terminal collapsed") {
+		t.Fatal("expected collapsed terminal panel in view")
+	}
+}
+
+func testModel(hostname string) Model {
+	cfg := config.Defaults()
+	exec := &shell.MockExecutor{}
+	return newModel(nil, nil, hostname, cfg, exec, shell.RealFS{}, newTerminal(cfg.TerminalHistoryLines))
 }
 
 func keyText(text string) tea.KeyPressMsg {

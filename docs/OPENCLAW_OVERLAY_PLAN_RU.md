@@ -87,10 +87,8 @@
 Идентификация админа:
 
 - При первом запуске `openclaw-multi` (когда в `state.db` нет
-  записанного админа) — overlay читает `$SUDO_USER` (если запущено
-  через `sudo openclaw-multi`); если не пусто — это и есть кандидат в
-  админы. Если запущен напрямую (без sudo) — берёт `$USER` /
-  результат `whoami`.
+  записанного админа) — overlay запускается обычным admin user без
+  `sudo` и берет `$USER` / результат `whoami` как кандидата в админы.
 - TUI показывает: «обнаружен админ-кандидат: `<username>`. Сохранить?»
   → admin сохраняется в state.db (`admin_username`).
 - При всех последующих запусках overlay сравнивает текущего юзера
@@ -102,13 +100,12 @@ Sudo по требованию (без постоянного root):
   (не под root).
 - Для **операций, требующих root** (write в `/etc/cloudflared/`,
   `/etc/systemd/system/`, `useradd`, `loginctl enable-linger`,
-  `npm i -g`, `ufw`, `sysctl`), overlay вызывает их через `sudo
-<command>`. Если sudo попросит пароль — пароль будет введён в TUI
-  один раз за сессию (cached `sudo -v` на длительность сессии).
-- Альтернативно (для headless/CI-сценариев): админ настраивает
-  passwordless sudo для конкретного перечня команд через
-  `/etc/sudoers.d/openclaw-multi` — overlay предлагает сгенерировать
-  этот файл при fresh install (опционально).
+  `npm i -g`, `ufw`, `sysctl`), overlay вызывает их через явный
+  `sudo <command>`.
+- Если sudo попросит пароль, prompt отображается во встроенном PTY terminal,
+  и admin вводит пароль там, не выходя из TUI.
+- Overlay не создает `/etc/sudoers.d/openclaw-multi` и не добавляет
+  passwordless sudo allowlist. Используется существующая sudo policy VPS.
 
 Жёсткий контроль:
 

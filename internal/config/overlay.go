@@ -25,6 +25,7 @@ type OverlayConfig struct {
 	PortRangeStart             int           `yaml:"port_range_start"`
 	PortRangeStep              int           `yaml:"port_range_step"`
 	NodeVersionMin             string        `yaml:"node_version_min"`
+	TerminalHistoryLines       int           `yaml:"terminal_history_lines"`
 	Notifications              Notifications `yaml:"notifications"`
 }
 
@@ -37,12 +38,13 @@ type Notifications struct {
 // Defaults returns an OverlayConfig pre-filled with sensible defaults.
 func Defaults() *OverlayConfig {
 	return &OverlayConfig{
-		Subdomain:      "openclaw",
-		TunnelName:     "openclaw-multi",
-		TunnelMode:     "account",
-		PortRangeStart: 18789,
-		PortRangeStep:  20,
-		NodeVersionMin: "22.16.0",
+		Subdomain:            "openclaw",
+		TunnelName:           "openclaw-multi",
+		TunnelMode:           "account",
+		PortRangeStart:       18789,
+		PortRangeStep:        20,
+		NodeVersionMin:       "24",
+		TerminalHistoryLines: 1000,
 	}
 }
 
