@@ -77,7 +77,10 @@ func EnsureUFW(ctx context.Context, exec shell.Executor, extraPorts []int) (UFWS
 }
 
 func getUFWStatus(ctx context.Context, exec shell.Executor) (UFWStatus, error) {
-	res, err := exec.Run(ctx, shell.ExecOpts{Cmd: []string{"ufw", "status", "verbose"}})
+	res, err := exec.Run(ctx, shell.ExecOpts{
+		Cmd:  []string{"ufw", "status", "verbose"},
+		Sudo: true,
+	})
 	if err != nil {
 		return UFWStatus{}, err
 	}

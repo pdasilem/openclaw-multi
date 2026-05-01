@@ -33,7 +33,8 @@ func EnsureTailscale(ctx context.Context, exec shell.Executor, interactive bool)
 	}
 
 	statusRes, err := exec.Run(ctx, shell.ExecOpts{
-		Cmd: []string{"tailscale", "status", "--json"},
+		Cmd:  []string{"tailscale", "status", "--json"},
+		Sudo: true,
 	})
 	if err != nil {
 		return TailscaleStatus{Installed: true}, fmt.Errorf("tailscale status: %w", err)
