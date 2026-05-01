@@ -179,13 +179,14 @@ func setupAccountTunnel(
 		return fmt.Errorf("cloudflared ingress validate: %w", err)
 	}
 
-	if err := ensureCloudflaredService(ctx, exec, fs, renderer); err != nil {
+	serviceRef, err := ensureCloudflaredService(ctx, exec, fs, renderer)
+	if err != nil {
 		return err
 	}
 
 	// Enable and start service.
 	if _, err := exec.Run(ctx, shell.ExecOpts{
-		Cmd:  []string{"systemctl", "enable", "--now", cfServiceName},
+		Cmd:  []string{"systemctl", "enable", "--now", serviceRef},
 		Sudo: true,
 	}); err != nil {
 		return fmt.Errorf("systemctl enable cloudflared: %w", err)
@@ -198,20 +199,20 @@ func ensureCloudflaredService(
 	exec shell.Executor,
 	fs shell.FS,
 	renderer func(tmpl string, vars map[string]string) (string, error),
-) error {
+) (string, error) {
 	if _, err := fs.Stat(cfServicePath); err == nil {
-		return reloadSystemd(ctx, exec)
+		return cfServiceName, reloadSystemd(ctx, exec)
 	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("stat cloudflared service: %w", err)
+		return "", fmt.Errorf("stat cloudflared service: %w", err)
 	}
 	content, err := renderer(cfServiceTmpl, nil)
 	if err != nil {
-		return fmt.Errorf("render cloudflared service: %w", err)
+		return "", fmt.Errorf("render cloudflared service: %w", err)
 	}
 	if err := fs.WriteFile(cfServicePath, []byte(content), 0o644); err != nil {
-		return fmt.Errorf("write cloudflared service: %w", err)
+		return "", fmt.Errorf("write cloudflared service: %w", err)
 	}
-	return reloadSystemd(ctx, exec)
+	return cfServicePath, reloadSystemd(ctx, exec)
 }
 
 func reloadSystemd(ctx context.Context, exec shell.Executor) error {

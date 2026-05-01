@@ -191,6 +191,9 @@ func TestEnsureCloudflaredVariantA(t *testing.T) {
 	if _, err := fs.Stat(cfServicePath); err != nil {
 		t.Error("expected cloudflared systemd service to be written")
 	}
+	if !hasCall(joinedCalls(exec), "systemctl enable --now /etc/systemd/system/cloudflared.service") {
+		t.Fatalf("expected enable by service path after creating unit, got %v", joinedCalls(exec))
+	}
 }
 
 func TestEnsureCloudflaredUsesExistingTunnel(t *testing.T) {
@@ -259,6 +262,9 @@ func TestEnsureCloudflaredKeepsExistingService(t *testing.T) {
 	}
 	if string(data) != "existing service" {
 		t.Fatalf("expected existing service to be kept, got %q", string(data))
+	}
+	if !hasCall(joinedCalls(exec), "systemctl enable --now cloudflared") {
+		t.Fatalf("expected existing service to be enabled by name, got %v", joinedCalls(exec))
 	}
 }
 
