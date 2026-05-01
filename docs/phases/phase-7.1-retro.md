@@ -36,6 +36,9 @@ Implemented:
 - Install/runbook/E2E docs were updated to the new flow:
   `sudo make install`, `sudo openclaw-multi system-prepare`, then
   `openclaw-multi` as `ubuntu`.
+- `make install` installs runtime templates to `/opt/openclaw-multi/templates`
+  together with binaries, and CI checks the install manifest includes required
+  templates.
 
 Phase decisions fixed in code and docs:
 
@@ -91,6 +94,9 @@ Additional static documentation check:
 - During retro review, `system-prepare` was found to print only a generic
   success line while the phase task required exact operation output. That gap
   was fixed before finalizing this retro, and `make ci` was rerun.
+- During VPS validation, template installation was found missing from
+  `make install`. That gap was fixed by installing `templates/*` into
+  `/opt/openclaw-multi/templates` and adding `install-check` to `make ci`.
 - Phase 7.1 changed architecture, not just behavior. Updating only code would
   have left install/runbook/E2E docs contradictory, so the docs were treated as
   part of the implementation.

@@ -169,7 +169,8 @@ bin/openclaw-overlay-watcher
 
 ## Установка бинарников
 
-Установить бинарники в system-space из обычной SSH-сессии `ubuntu`:
+Установить бинарники и runtime templates в system-space из обычной SSH-сессии
+`ubuntu`:
 
 ```bash
 cd /home/ubuntu/openclaw-multi
@@ -178,12 +179,21 @@ sudo openclaw-multi system-prepare
 ```
 
 Проверить под пользователем `ubuntu`. Бинарники лежат в `/usr/local/bin`,
-поэтому должны находиться из обычной SSH-сессии:
+runtime templates лежат в `/opt/openclaw-multi/templates`:
 
 ```bash
 command -v openclaw-multi
 command -v openclaw-overlay-api
 command -v openclaw-overlay-watcher
+test -x /usr/local/bin/openclaw-multi
+test -x /usr/local/bin/openclaw-overlay-api
+test -x /usr/local/bin/openclaw-overlay-watcher
+test -f /opt/openclaw-multi/templates/cloudflared-config.tmpl
+test -f /opt/openclaw-multi/templates/openclaw-overlay-api.service.tmpl
+test -f /opt/openclaw-multi/templates/openclaw-gateway.service.tmpl
+test -f /opt/openclaw-multi/templates/openclaw-overlay-watcher.service.tmpl
+test -f /opt/openclaw-multi/templates/openclaw-backup@.service.tmpl
+test -f /opt/openclaw-multi/templates/openclaw-backup@.timer.tmpl
 ```
 
 ## Cloudflare named tunnel
@@ -290,6 +300,8 @@ command -v openclaw-overlay-watcher
 command -v cloudflared
 test -d /home/ubuntu/openclaw-multi
 test -f /etc/cloudflared/<tunnel_id>.json
+test -f /opt/openclaw-multi/templates/cloudflared-config.tmpl
+test -f /opt/openclaw-multi/templates/openclaw-overlay-api.service.tmpl
 test -w /var/lib/openclaw-multi
 test -w /var/log/openclaw-multi
 test ! -e /var/lib/openclaw-multi/state.db || test -w /var/lib/openclaw-multi/state.db

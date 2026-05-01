@@ -1,6 +1,11 @@
 MODULE := github.com/pdasilem/openclaw-multi
 BINARIES := openclaw-multi openclaw-overlay-api openclaw-overlay-watcher
 BIN_DIR := bin
+PREFIX ?= /usr/local
+OPT_DIR ?= /opt/openclaw-multi
+DESTDIR ?=
+INSTALL_BIN_DIR := $(DESTDIR)$(PREFIX)/bin
+INSTALL_TEMPLATE_DIR := $(DESTDIR)$(OPT_DIR)/templates
 
 GOOS ?= linux
 GO_AMD64 := GOOS=linux GOARCH=amd64
@@ -9,7 +14,7 @@ GO_ARM64 := GOOS=linux GOARCH=arm64
 GOLANGCI_LINT_VERSION := v1.64.8
 
 .PHONY: all build build-amd64 build-arm64 test test-unit lint schema-check \
-        ci clean dev install help test-docker-build test-docker-run test-phase-0
+        install-check ci clean dev install help test-docker-build test-docker-run test-phase-0
 
 all: build ## Default: build all binaries
 
@@ -60,7 +65,24 @@ shellcheck: ## Run shellcheck on all bash scripts
 		echo "  shellcheck not installed, skipping"; \
 	fi
 
-ci: lint test build schema-check shellcheck ## Run full CI pipeline
+install-check: build ## Verify install target installs runtime files into expected paths
+	@tmpdir="$$(mktemp -d /tmp/openclaw-multi-install.XXXXXX)"; \
+	$(MAKE) --no-print-directory install DESTDIR="$$tmpdir"; \
+	for bin in $(BINARIES); do \
+		test -x "$$tmpdir$(PREFIX)/bin/$$bin"; \
+	done; \
+	for tmpl in \
+		cloudflared-config.tmpl \
+		openclaw-overlay-api.service.tmpl \
+		openclaw-gateway.service.tmpl \
+		openclaw-overlay-watcher.service.tmpl \
+		openclaw-backup@.service.tmpl \
+		openclaw-backup@.timer.tmpl; do \
+		test -f "$$tmpdir$(OPT_DIR)/templates/$$tmpl"; \
+	done; \
+	rm -rf "$$tmpdir"
+
+ci: lint test build schema-check install-check shellcheck ## Run full CI pipeline
 
 clean: ## Remove build artifacts
 	rm -rf $(BIN_DIR) coverage.out coverage.html
@@ -69,13 +91,16 @@ dev: ## Run TUI locally
 	go run ./cmd/openclaw-multi
 
 install: ## Install binaries to /usr/local/bin (requires sudo)
-	@if [ "$$(id -u)" != "0" ]; then \
+	@if [ -z "$(DESTDIR)" ] && [ "$$(id -u)" != "0" ]; then \
 		echo "Warning: install requires root. Run: sudo make install"; \
 		exit 1; \
 	fi
+	@install -d -m 0755 $(INSTALL_BIN_DIR)
 	@for bin in $(BINARIES); do \
-		install -m 0755 $(BIN_DIR)/$$bin /usr/local/bin/$$bin; \
+		install -m 0755 $(BIN_DIR)/$$bin $(INSTALL_BIN_DIR)/$$bin; \
 	done
+	@install -d -m 0755 $(INSTALL_TEMPLATE_DIR)
+	@find templates -maxdepth 1 -type f ! -name '.gitkeep' -exec install -m 0644 {} $(INSTALL_TEMPLATE_DIR)/ \;
 
 test-docker-build: ## Build Docker test image
 	docker build -f test/docker/Dockerfile.test -t openclaw-multi-test .
